@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0b0b0b" />
 </head>
 <body>
-  <header class="header">
+  <header class="header no-print">
     <div class="headerRow">
       <div class="titlewrap">
         <h1>4v4 Rotation Planner</h1>
@@ -19,7 +19,7 @@
   </header>
 
   <main class="container">
-    <section class="card">
+    <section class="card no-print">
       <h2>Game controls</h2>
       <div class="grid">
         <label class="field">
@@ -57,11 +57,12 @@
         <button id="lockCurrentBtn" class="secondary">Lock current period</button>
       </div>
       <div class="buttons">
-        <button id="shareBtn" class="secondary">📋 Copy Schedule</button>
+        <button id="printBtn" class="secondary">🖨️ Print View</button>
+        <button id="shareBtn" class="secondary">📋 Copy Text</button>
         <button id="unlockAllBtn" class="secondary">Unlock future</button>
       </div>
       <div class="buttons">
-        <button id="resetGameBtn" class="danger">Reset game (keep roster)</button>
+        <button id="resetGameBtn" class="danger">Reset game</button>
         <button id="resetAllBtn" class="danger">Reset everything</button>
       </div>
       <div id="status" class="status"></div>
@@ -70,18 +71,21 @@
     <section class="card">
       <div class="rowhead">
         <h2>Players</h2>
-        <button id="saveRosterBtn" class="secondary smallbtn" type="button">Save roster</button>
+        <div class="btn-group no-print">
+           <button id="importBtn" class="secondary smallbtn" type="button">Import List</button>
+           <button id="saveRosterBtn" class="secondary smallbtn" type="button">Save</button>
+        </div>
       </div>
-      <div class="hint">
-        Use <strong>Avail</strong> for arrivals. Use <strong>Out</strong> for injuries. Mark <strong>Top</strong> for key ball handlers.
+      <div class="hint no-print">
+        Drag ☰ to reorder. Use <strong>Avail</strong> for arrivals. Mark <strong>Top</strong> for best players.
       </div>
       <div id="players"></div>
     </section>
 
     <section class="card">
       <h2>Lineups</h2>
-      <div class="hint">
-        Tap "Lock" to finalize a period. Locked periods won't change during rebuilds.
+      <div class="hint no-print">
+        Tap "Lock" to finalize a period.
       </div>
       <div id="lineups"></div>
     </section>
@@ -92,9 +96,22 @@
     </section>
   </main>
 
-  <footer class="footer">
+  <footer class="footer no-print">
     Tip: Add to Home Screen for a fast app-like experience.
   </footer>
+
+  <dialog id="importDialog">
+    <form method="dialog">
+      <h3>Import Players</h3>
+      <p class="small">Paste names below (one per line). This will append to your current list.</p>
+      <textarea id="importText" rows="6" placeholder="John&#10;Mike&#10;Sarah"></textarea>
+      <div class="buttons">
+        <button value="cancel" class="secondary">Cancel</button>
+        <button id="confirmImportBtn" value="default">Import</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="app.js"></script>
 </body>
 </html>
