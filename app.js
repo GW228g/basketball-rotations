@@ -1,10 +1,11 @@
-// 4v4 Rotation Planner (UPDATED)
-// Fix: Top-2 enforcement no longer benches the same kid repeatedly in Sliding modes.
-// It now swaps out the player in the lineup with the MOST minutes so far (fair).
+// 4v4 Rotation Planner (Theme + Fair Top-2 in Sliding)
+// Light/Dark theme saved in localStorage; defaults to system preference.
+// Top-2 enforcement no longer sacrifices the same kid repeatedly.
 
 const PERIODS = 8;
 const ON_COURT = 4;
 const LS_KEY = "rotation_planner_state_v3";
+const THEME_KEY = "rotation_planner_theme";
 
 function uid() { return Math.random().toString(16).slice(2); }
 
@@ -202,7 +203,6 @@ function buildSlidingFixedFrom(startPeriod) {
   if (pool.length < ON_COURT) return;
 
   const played = playedCountsUpTo(startPeriod - 1);
-
   const ordered = state.players.filter(p => p.available && !p.out).map(p => p.id);
 
   for (let k = startPeriod; k <= PERIODS; k++) {
@@ -224,7 +224,6 @@ function buildSlidingAdaptiveFrom(startPeriod) {
   if (pool.length < ON_COURT) return;
 
   const played = playedCountsUpTo(startPeriod - 1);
-
   const rosterOrder = state.players.map(p => p.id);
   let pointer = (startPeriod - 1) % rosterOrder.length;
 
@@ -282,7 +281,6 @@ function buildTrueRandomFairFrom(startPeriod) {
     if (state.locked[String(k)]) continue;
 
     const pick = pickLineupMostOwed({ pool, need, played, streakBefore: streak });
-    // In true random mode, Top-2 and streak rules still apply only if you keep them checked.
     const lineup = enforceTopTwoFair(pick, pool, played);
 
     state.schedule[String(k)] = lineup;
@@ -299,7 +297,7 @@ function buildTrueRandomFairFrom(startPeriod) {
 }
 
 function buildFairOptimizedFrom(startPeriod) {
-  // This mode already balances time well; still uses the fair Top-2 swap.
+  // Reuse the same engine; its scoring already leans to fairness.
   buildTrueRandomFairFrom(startPeriod);
 }
 
@@ -330,6 +328,31 @@ function rebuildFromCurrent() {
   setStatus(`Rebuilt from period ${start}.`);
 }
 
+// --- Theme
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const btn = document.getElementById("themeToggle");
+  if (btn) btn.textContent = theme === "light" ? "Dark mode" : "Light mode";
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  const prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+  const theme = saved || (prefersLight ? "light" : "dark");
+  applyTheme(theme);
+
+  const btn = document.getElementById("themeToggle");
+  if (btn) {
+    btn.onclick = () => {
+      const current = document.documentElement.getAttribute("data-theme") || "dark";
+      const next = current === "light" ? "dark" : "light";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+    };
+  }
+}
+
 // --- UI wiring
 
 const elPlayers = document.getElementById("players");
@@ -337,10 +360,13 @@ const elLineups = document.getElementById("lineups");
 const elMinutes = document.getElementById("minutes");
 const elStatus = document.getElementById("status");
 
-function setStatus(msg) { elStatus.textContent = msg || ""; }
+function setStatus(msg) {
+  if (elStatus) elStatus.textContent = msg || "";
+}
 
 function renderPeriodSelect() {
   const sel = document.getElementById("currentPeriod");
+  if (!sel) return;
   sel.innerHTML = "";
   for (let i = 1; i <= PERIODS; i++) {
     const opt = document.createElement("option");
@@ -358,21 +384,31 @@ function renderSettings() {
   const avoid = document.getElementById("avoidStreaks");
   const auto = document.getElementById("autoRebuild");
 
-  mode.value = state.mode;
-  mode.onchange = () => { state.mode = mode.value; saveState(); renderAll(); };
+  if (mode) {
+    mode.value = state.mode;
+    mode.onchange = () => { state.mode = mode.value; saveState(); renderAll(); };
+  }
 
-  topTwo.checked = !!state.topTwoCoverage;
-  topTwo.onchange = () => { state.topTwoCoverage = topTwo.checked; saveState(); renderAll(); };
+  if (topTwo) {
+    topTwo.checked = !!state.topTwoCoverage;
+    topTwo.onchange = () => { state.topTwoCoverage = topTwo.checked; saveState(); renderAll(); };
+  }
 
-  avoid.checked = !!state.avoidStreaks;
-  avoid.onchange = () => { state.avoidStreaks = avoid.checked; saveState(); renderAll(); };
+  if (avoid) {
+    avoid.checked = !!state.avoidStreaks;
+    avoid.onchange = () => { state.avoidStreaks = avoid.checked; saveState(); renderAll(); };
+  }
 
-  auto.checked = !!state.autoRebuild;
-  auto.onchange = () => { state.autoRebuild = auto.checked; saveState(); renderAll(); };
+  if (auto) {
+    auto.checked = !!state.autoRebuild;
+    auto.onchange = () => { state.autoRebuild = auto.checked; saveState(); renderAll(); };
+  }
 }
 
 function renderPlayers() {
+  if (!elPlayers) return;
   elPlayers.innerHTML = "";
+
   state.players.forEach((p) => {
     const row = document.createElement("div");
     row.className = "player";
@@ -380,7 +416,11 @@ function renderPlayers() {
     const name = document.createElement("input");
     name.type = "text";
     name.value = p.name;
-    name.onchange = () => { p.name = (name.value || "").trim() || p.name; saveState(); renderAll(); };
+    name.onchange = () => {
+      p.name = (name.value || "").trim() || p.name;
+      saveState();
+      renderAll();
+    };
 
     const top = document.createElement("label");
     top.className = "pill";
@@ -388,7 +428,11 @@ function renderPlayers() {
     const topCb = document.createElement("input");
     topCb.type = "checkbox";
     topCb.checked = !!p.top;
-    topCb.onchange = () => { p.top = topCb.checked; saveState(); state.autoRebuild ? rebuildFromCurrent() : renderAll(); };
+    topCb.onchange = () => {
+      p.top = topCb.checked;
+      saveState();
+      state.autoRebuild ? rebuildFromCurrent() : renderAll();
+    };
     top.appendChild(topCb);
 
     const avail = document.createElement("label");
@@ -397,7 +441,11 @@ function renderPlayers() {
     const availCb = document.createElement("input");
     availCb.type = "checkbox";
     availCb.checked = !!p.available;
-    availCb.onchange = () => { p.available = availCb.checked; saveState(); state.autoRebuild ? rebuildFromCurrent() : renderAll(); };
+    availCb.onchange = () => {
+      p.available = availCb.checked;
+      saveState();
+      state.autoRebuild ? rebuildFromCurrent() : renderAll();
+    };
     avail.appendChild(availCb);
 
     const out = document.createElement("label");
@@ -406,7 +454,11 @@ function renderPlayers() {
     const outCb = document.createElement("input");
     outCb.type = "checkbox";
     outCb.checked = !!p.out;
-    outCb.onchange = () => { p.out = outCb.checked; saveState(); state.autoRebuild ? rebuildFromCurrent() : renderAll(); };
+    outCb.onchange = () => {
+      p.out = outCb.checked;
+      saveState();
+      state.autoRebuild ? rebuildFromCurrent() : renderAll();
+    };
     out.appendChild(outCb);
 
     row.appendChild(name);
@@ -418,7 +470,9 @@ function renderPlayers() {
 }
 
 function renderLineups() {
+  if (!elLineups) return;
   elLineups.innerHTML = "";
+
   for (let k = 1; k <= PERIODS; k++) {
     const wrap = document.createElement("div");
     wrap.className = "lineup";
@@ -432,8 +486,12 @@ function renderLineups() {
     const lineup = state.schedule[String(k)];
     const body = document.createElement("div");
 
-    if (!lineup) { body.className = "small"; body.textContent = "No lineup yet. Rebuild to generate."; }
-    else body.textContent = lineup.map(nameById).join(", ");
+    if (!lineup) {
+      body.className = "small";
+      body.textContent = "No lineup yet. Rebuild to generate.";
+    } else {
+      body.textContent = lineup.map(nameById).join(", ");
+    }
 
     wrap.appendChild(body);
     elLineups.appendChild(wrap);
@@ -441,7 +499,9 @@ function renderLineups() {
 }
 
 function renderMinutes() {
+  if (!elMinutes) return;
   const counts = playedCountsUpTo(PERIODS);
+
   const rows = state.players.map(p => ({
     name: p.name,
     played: counts[p.id] || 0,
@@ -482,13 +542,14 @@ function renderAll() {
   renderPlayers();
   renderLineups();
   renderMinutes();
-  setStatus("");
 }
 
 // Buttons
-document.getElementById("rebuildBtn").onclick = rebuildFromCurrent;
+const rebuildBtn = document.getElementById("rebuildBtn");
+if (rebuildBtn) rebuildBtn.onclick = rebuildFromCurrent;
 
-document.getElementById("lockCurrentBtn").onclick = () => {
+const lockBtn = document.getElementById("lockCurrentBtn");
+if (lockBtn) lockBtn.onclick = () => {
   clampCurrentPeriod();
   state.locked[String(state.currentPeriod)] = true;
   saveState();
@@ -496,7 +557,8 @@ document.getElementById("lockCurrentBtn").onclick = () => {
   setStatus(`Locked period ${state.currentPeriod}.`);
 };
 
-document.getElementById("unlockAllBtn").onclick = () => {
+const unlockBtn = document.getElementById("unlockAllBtn");
+if (unlockBtn) unlockBtn.onclick = () => {
   clampCurrentPeriod();
   for (let k = state.currentPeriod; k <= PERIODS; k++) delete state.locked[String(k)];
   saveState();
@@ -504,12 +566,14 @@ document.getElementById("unlockAllBtn").onclick = () => {
   setStatus("Unlocked all future periods.");
 };
 
-document.getElementById("saveRosterBtn").onclick = () => {
+const saveRosterBtn = document.getElementById("saveRosterBtn");
+if (saveRosterBtn) saveRosterBtn.onclick = () => {
   saveState();
   setStatus("Roster saved.");
 };
 
-document.getElementById("resetGameBtn").onclick = () => {
+const resetGameBtn = document.getElementById("resetGameBtn");
+if (resetGameBtn) resetGameBtn.onclick = () => {
   if (!confirm("Reset schedule and locks? Roster stays.")) return;
   state.currentPeriod = 1;
   state.schedule = {};
@@ -519,7 +583,8 @@ document.getElementById("resetGameBtn").onclick = () => {
   setStatus("Game reset.");
 };
 
-document.getElementById("resetAllBtn").onclick = () => {
+const resetAllBtn = document.getElementById("resetAllBtn");
+if (resetAllBtn) resetAllBtn.onclick = () => {
   if (!confirm("Reset everything including roster names?")) return;
   state = defaultState();
   saveState();
@@ -527,4 +592,6 @@ document.getElementById("resetAllBtn").onclick = () => {
   setStatus("Everything reset.");
 };
 
+// Start
+initTheme();
 renderAll();
