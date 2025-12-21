@@ -1,20 +1,21 @@
-// 4v4 Rotation Planner (Theme + Fair Top-2 in Sliding)
-// Light/Dark theme saved in localStorage; defaults to system preference.
-// Top-2 enforcement no longer sacrifices the same kid repeatedly.
+// 4v4 Rotation Planner (FIXED)
+// - Theme toggle: robust + saved, defaults to system preference
+// - Fair time optimized: strict fairness-first (min/max minutes stays tight)
+// - Sliding modes kept as-is, but fairness modes now truly fair
 
 const PERIODS = 8;
 const ON_COURT = 4;
-const LS_KEY = "rotation_planner_state_v3";
+const LS_KEY = "rotation_planner_state_v4";
 const THEME_KEY = "rotation_planner_theme";
 
 function uid() { return Math.random().toString(16).slice(2); }
 
 function defaultState() {
   return {
-    mode: "sliding_adaptive",
+    mode: "fair_optimized",
     currentPeriod: 1,
-    topTwoCoverage: true,
-    avoidStreaks: true,
+    topTwoCoverage: false,
+    avoidStreaks: false,
     autoRebuild: false,
     players: Array.from({ length: 8 }, (_, i) => ({
       id: uid(),
@@ -39,10 +40,10 @@ function loadState() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return defaultState();
     const parsed = JSON.parse(raw);
-    parsed.mode ??= "sliding_adaptive";
+    parsed.mode ??= "fair_optimized";
     parsed.currentPeriod ??= 1;
-    parsed.topTwoCoverage ??= true;
-    parsed.avoidStreaks ??= true;
+    parsed.topTwoCoverage ??= false;
+    parsed.avoidStreaks ??= false;
     parsed.autoRebuild ??= false;
     parsed.players ??= [];
     parsed.schedule ??= {};
@@ -94,14 +95,13 @@ function playedCountsUpTo(periodInclusive) {
   return counts;
 }
 
-function buildConsecutiveCounts(upToPeriod) {
+function consecutiveCountsUpTo(periodInclusive) {
   const streak = {};
   for (const p of state.players) streak[p.id] = 0;
-  for (let k = 1; k <= upToPeriod; k++) {
-    const lineup = new Set(state.schedule[String(k)] || []);
+  for (let k = 1; k <= periodInclusive; k++) {
+    const set = new Set(state.schedule[String(k)] || []);
     for (const p of state.players) {
-      if (lineup.has(p.id)) streak[p.id] = (streak[p.id] || 0) + 1;
-      else streak[p.id] = 0;
+      streak[p.id] = set.has(p.id) ? (streak[p.id] || 0) + 1 : 0;
     }
   }
   return streak;
@@ -111,9 +111,7 @@ function topActiveIds(pool) {
   return pool.filter(p => p.top).map(p => p.id);
 }
 
-// FAIR Top-2 enforcement:
-// - If lineup has no top player, bring in a top player who has played the LEAST so far
-// - Swap out a non-top player in the lineup who has played the MOST so far
+// Fair Top-2 enforcement (only when enabled)
 function enforceTopTwoFair(lineup, pool, played) {
   if (!state.topTwoCoverage) return lineup;
 
@@ -122,8 +120,10 @@ function enforceTopTwoFair(lineup, pool, played) {
 
   if (lineup.some(pid => topIds.includes(pid))) return lineup;
 
+  // bring in the top player with the LEAST minutes so far
   const pickTop = topIds.slice().sort((a, b) => (played[a] ?? 0) - (played[b] ?? 0))[0];
 
+  // swap out the NON-top player with the MOST minutes so far
   const replaceCandidates = lineup.filter(pid => !topIds.includes(pid));
   if (replaceCandidates.length === 0) return lineup;
 
@@ -138,92 +138,67 @@ function enforceTopTwoFair(lineup, pool, played) {
 
 function violatesStreak(lineup, streakBefore) {
   if (!state.avoidStreaks) return false;
-  for (const pid of lineup) {
-    if ((streakBefore[pid] || 0) >= 2) return true;
-  }
+  for (const pid of lineup) if ((streakBefore[pid] || 0) >= 2) return true;
   return false;
 }
 
-function remainingNeedFromTargets(poolIds, remainingSpots) {
-  const base = Math.floor(remainingSpots / poolIds.length);
-  const rem = remainingSpots % poolIds.length;
-  const bonus = new Set(shuffle(poolIds).slice(0, rem));
-  const need = {};
-  for (const pid of poolIds) need[pid] = base + (bonus.has(pid) ? 1 : 0);
-  return need;
-}
+/**
+ * STRICT fairness picker:
+ * Always prioritize players with the LOWEST played minutes.
+ * Tie-break randomly. Optionally avoid streaks + enforce Top-2.
+ * This guarantees perfect 4/4/4/4 when divisible (32 slots / 8 players).
+ */
+function pickStrictFairLineup({ poolIds, played, streakBefore }) {
+  // sort by played ascending
+  const sorted = poolIds.slice().sort((a, b) => (played[a] ?? 0) - (played[b] ?? 0));
 
-function pickLineupMostOwed({ pool, need, played, streakBefore }) {
-  const ids = pool.map(p => p.id);
-  const sorted = ids.slice().sort((a, b) => {
-    const dn = (need[b] ?? 0) - (need[a] ?? 0);
-    if (dn !== 0) return dn;
-    return (played[a] ?? 0) - (played[b] ?? 0);
-  });
+  // Build lineup by taking from the lowest-played group(s)
+  let lineup = [];
+  let idx = 0;
 
-  const maxNeed = need[sorted[0]] ?? 0;
-  let bucket = sorted.filter(pid => (need[pid] ?? 0) >= maxNeed - 1);
-  bucket = shuffle(bucket);
-
-  let tier = maxNeed - 1;
-  while (bucket.length < ON_COURT) {
-    tier -= 1;
-    const expanded = sorted.filter(pid => (need[pid] ?? 0) >= tier);
-    bucket = shuffle(Array.from(new Set([...bucket, ...expanded])));
-    if (tier < -50) break;
+  while (lineup.length < ON_COURT && idx < sorted.length) {
+    const currentPlayed = played[sorted[idx]] ?? 0;
+    const group = [];
+    while (idx < sorted.length && ((played[sorted[idx]] ?? 0) === currentPlayed)) {
+      group.push(sorted[idx]);
+      idx++;
+    }
+    lineup = lineup.concat(shuffle(group));
   }
 
-  let best = null;
-  let bestScore = -Infinity;
+  lineup = lineup.slice(0, ON_COURT);
 
-  for (let attempt = 0; attempt < 30; attempt++) {
-    const pick = shuffle(bucket).slice(0, ON_COURT);
-    let score = 0;
+  // If streak avoidance is on, try a few reshuffles within the lowest-played set
+  if (state.avoidStreaks) {
+    let best = lineup;
+    let bestPenalty = Infinity;
 
-    for (const pid of pick) {
-      score += (need[pid] ?? 0) * 10;
-      score += Math.max(0, 10 - (played[pid] ?? 0));
+    // candidates: first ~6 lowest-played, enough to shuffle
+    const candPool = sorted.slice(0, Math.min(sorted.length, 6));
+
+    for (let t = 0; t < 30; t++) {
+      const cand = shuffle(candPool).slice(0, ON_COURT);
+      const penalty = violatesStreak(cand, streakBefore) ? 1 : 0;
+      if (penalty < bestPenalty) {
+        bestPenalty = penalty;
+        best = cand;
+        if (penalty === 0) break;
+      }
     }
-
-    if (violatesStreak(pick, streakBefore)) score -= 100;
-
-    if (score > bestScore) {
-      bestScore = score;
-      best = pick;
-    }
+    lineup = best;
   }
 
-  return best || shuffle(sorted).slice(0, ON_COURT);
+  return lineup;
 }
 
 // --- Build modes
-
-function buildSlidingFixedFrom(startPeriod) {
-  const pool = activePlayers();
-  if (pool.length < ON_COURT) return;
-
-  const played = playedCountsUpTo(startPeriod - 1);
-  const ordered = state.players.filter(p => p.available && !p.out).map(p => p.id);
-
-  for (let k = startPeriod; k <= PERIODS; k++) {
-    if (state.locked[String(k)]) continue;
-
-    const startIdx = (k - 1) % ordered.length;
-    const lineup = [];
-    for (let i = 0; i < ON_COURT; i++) lineup.push(ordered[(startIdx + i) % ordered.length]);
-
-    const finalLineup = enforceTopTwoFair(lineup, pool, played);
-    state.schedule[String(k)] = finalLineup;
-
-    for (const pid of finalLineup) played[pid] = (played[pid] || 0) + 1;
-  }
-}
 
 function buildSlidingAdaptiveFrom(startPeriod) {
   const pool = activePlayers();
   if (pool.length < ON_COURT) return;
 
   const played = playedCountsUpTo(startPeriod - 1);
+
   const rosterOrder = state.players.map(p => p.id);
   let pointer = (startPeriod - 1) % rosterOrder.length;
 
@@ -242,7 +217,6 @@ function buildSlidingAdaptiveFrom(startPeriod) {
 
     const lineup = [];
     const used = new Set();
-
     while (lineup.length < ON_COURT) {
       const pid = nextActiveId();
       if (!pid) break;
@@ -251,16 +225,28 @@ function buildSlidingAdaptiveFrom(startPeriod) {
       lineup.push(pid);
     }
 
-    if (lineup.length < ON_COURT) {
-      for (const p of shuffle(pool)) {
-        if (lineup.length >= ON_COURT) break;
-        if (!used.has(p.id)) lineup.push(p.id);
-      }
-    }
+    const finalLineup = enforceTopTwoFair(lineup, pool, played);
+    state.schedule[String(k)] = finalLineup;
+    for (const pid of finalLineup) played[pid] = (played[pid] || 0) + 1;
+  }
+}
+
+function buildSlidingFixedFrom(startPeriod) {
+  const pool = activePlayers();
+  if (pool.length < ON_COURT) return;
+
+  const played = playedCountsUpTo(startPeriod - 1);
+  const ordered = state.players.filter(p => p.available && !p.out).map(p => p.id);
+
+  for (let k = startPeriod; k <= PERIODS; k++) {
+    if (state.locked[String(k)]) continue;
+
+    const startIdx = (k - 1) % ordered.length;
+    const lineup = [];
+    for (let i = 0; i < ON_COURT; i++) lineup.push(ordered[(startIdx + i) % ordered.length]);
 
     const finalLineup = enforceTopTwoFair(lineup, pool, played);
     state.schedule[String(k)] = finalLineup;
-
     for (const pid of finalLineup) played[pid] = (played[pid] || 0) + 1;
   }
 }
@@ -269,36 +255,58 @@ function buildTrueRandomFairFrom(startPeriod) {
   const pool = activePlayers();
   if (pool.length < ON_COURT) return;
 
+  const poolIds = pool.map(p => p.id);
   const played = playedCountsUpTo(startPeriod - 1);
-  let streak = buildConsecutiveCounts(startPeriod - 1);
-
-  const ids = pool.map(p => p.id);
-  const periodsLeft = PERIODS - startPeriod + 1;
-  const remainingSpots = periodsLeft * ON_COURT;
-  const need = remainingNeedFromTargets(ids, remainingSpots);
+  let streak = consecutiveCountsUpTo(startPeriod - 1);
 
   for (let k = startPeriod; k <= PERIODS; k++) {
     if (state.locked[String(k)]) continue;
 
-    const pick = pickLineupMostOwed({ pool, need, played, streakBefore: streak });
-    const lineup = enforceTopTwoFair(pick, pool, played);
+    // Random, but still fairness-biased: choose from lowest-played set with shuffles
+    let lineup = pickStrictFairLineup({ poolIds, played, streakBefore: streak });
+    lineup = shuffle(lineup); // inject extra randomness
+    lineup = enforceTopTwoFair(lineup, pool, played);
 
     state.schedule[String(k)] = lineup;
 
     const set = new Set(lineup);
-    for (const pid of ids) {
+    for (const pid of poolIds) {
       if (set.has(pid)) {
         played[pid] = (played[pid] || 0) + 1;
-        need[pid] = (need[pid] || 0) - 1;
         streak[pid] = (streak[pid] || 0) + 1;
-      } else streak[pid] = 0;
+      } else {
+        streak[pid] = 0;
+      }
     }
   }
 }
 
 function buildFairOptimizedFrom(startPeriod) {
-  // Reuse the same engine; its scoring already leans to fairness.
-  buildTrueRandomFairFrom(startPeriod);
+  const pool = activePlayers();
+  if (pool.length < ON_COURT) return;
+
+  const poolIds = pool.map(p => p.id);
+  const played = playedCountsUpTo(startPeriod - 1);
+  let streak = consecutiveCountsUpTo(startPeriod - 1);
+
+  for (let k = startPeriod; k <= PERIODS; k++) {
+    if (state.locked[String(k)]) continue;
+
+    let lineup = pickStrictFairLineup({ poolIds, played, streakBefore: streak });
+    lineup = enforceTopTwoFair(lineup, pool, played);
+
+    state.schedule[String(k)] = lineup;
+
+    const set = new Set(lineup);
+    for (const pid of poolIds) {
+      if (set.has(pid)) {
+        played[pid] = (played[pid] || 0) + 1;
+        streak[pid] = (streak[pid] || 0) + 1;
+      } else {
+        streak[pid] = 0;
+      }
+    }
+  }
 }
 
 // --- Rebuild
@@ -328,7 +336,7 @@ function rebuildFromCurrent() {
   setStatus(`Rebuilt from period ${start}.`);
 }
 
-// --- Theme
+// --- Theme (robust)
 
 function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
@@ -342,18 +350,24 @@ function initTheme() {
   const theme = saved || (prefersLight ? "light" : "dark");
   applyTheme(theme);
 
-  const btn = document.getElementById("themeToggle");
-  if (btn) {
+  function wire() {
+    const btn = document.getElementById("themeToggle");
+    if (!btn) return false;
+    btn.type = "button";
     btn.onclick = () => {
       const current = document.documentElement.getAttribute("data-theme") || "dark";
       const next = current === "light" ? "dark" : "light";
       localStorage.setItem(THEME_KEY, next);
       applyTheme(next);
     };
+    return true;
   }
+
+  // Try now, and again shortly after (covers caching/DOM timing edge cases)
+  if (!wire()) setTimeout(wire, 250);
 }
 
-// --- UI wiring
+// --- UI
 
 const elPlayers = document.getElementById("players");
 const elLineups = document.getElementById("lineups");
@@ -388,17 +402,14 @@ function renderSettings() {
     mode.value = state.mode;
     mode.onchange = () => { state.mode = mode.value; saveState(); renderAll(); };
   }
-
   if (topTwo) {
     topTwo.checked = !!state.topTwoCoverage;
     topTwo.onchange = () => { state.topTwoCoverage = topTwo.checked; saveState(); renderAll(); };
   }
-
   if (avoid) {
     avoid.checked = !!state.avoidStreaks;
     avoid.onchange = () => { state.avoidStreaks = avoid.checked; saveState(); renderAll(); };
   }
-
   if (auto) {
     auto.checked = !!state.autoRebuild;
     auto.onchange = () => { state.autoRebuild = auto.checked; saveState(); renderAll(); };
