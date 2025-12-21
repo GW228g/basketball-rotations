@@ -1,3 +1,4 @@
+/* [cite: 101-109] Root variables for dark mode (default) */
 :root {
   --bg: #0b0b0b;
   --card: #121212;
@@ -8,10 +9,10 @@
   --danger: #a33a3a;
   --input: #0f0f0f;
   --btn: #1d1d1d;
-
-  font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* [cite: 110-120] Light mode variables */
 [data-theme="light"] {
   --bg: #f6f6f6;
   --card: #ffffff;
@@ -26,15 +27,15 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); }
-a { color: inherit; }
 
+/* Layout Components */
 .header {
-  padding: 14px 14px 10px 14px;
+  padding: 14px;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(0,0,0,0.08), rgba(0,0,0,0));
+  background: var(--bg);
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 10;
 }
 
 .headerRow {
@@ -51,7 +52,7 @@ a { color: inherit; }
   padding: 12px;
   display: grid;
   gap: 12px;
-  max-width: 980px;
+  max-width: 800px;
   margin: 0 auto;
 }
 
@@ -63,9 +64,9 @@ a { color: inherit; }
 }
 
 h2 { margin: 0 0 10px 0; font-size: 16px; }
-
 .hint { color: var(--muted); font-size: 13px; margin: 6px 0 10px 0; }
 
+/* Form Elements */
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -78,16 +79,18 @@ h2 { margin: 0 0 10px 0; font-size: 16px; }
 select, input[type="text"] {
   width: 100%;
   padding: 10px;
-  border-radius: 12px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--input);
   color: var(--text);
+  font-size: 16px; /* Prevents zoom on mobile */
 }
 
-.toggles { display: grid; gap: 10px; margin: 10px 0; }
-.toggle { display: flex; gap: 10px; align-items: center; color: inherit; }
-.toggle input { transform: scale(1.1); }
+.toggles { display: grid; gap: 10px; margin: 12px 0; }
+.toggle { display: flex; gap: 10px; align-items: center; font-size: 14px; cursor: pointer; }
+.toggle input { transform: scale(1.2); accent-color: var(--text); }
 
+/* Buttons */
 .buttons {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -96,92 +99,83 @@ select, input[type="text"] {
 }
 
 button {
-  padding: 10px;
-  border-radius: 12px;
+  padding: 12px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--btn);
   color: var(--text);
-  font-weight: 650;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 14px;
 }
 
 button.secondary { background: var(--input); color: var(--text); }
-button.danger { background: color-mix(in srgb, var(--danger) 25%, var(--btn)); border-color: color-mix(in srgb, var(--danger) 60%, var(--border)); color: var(--text); }
-button:active { transform: scale(0.99); }
-
-.smallBtn {
-  padding: 8px 10px;
-  border-radius: 12px;
-  font-weight: 650;
-  font-size: 12px;
-  white-space: nowrap;
+button.danger { 
+  background: color-mix(in srgb, var(--danger) 20%, var(--btn)); 
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border)); 
+  color: var(--danger); 
 }
+button:active { transform: scale(0.98); }
+.smallbtn { padding: 6px 12px; font-size: 12px; }
 
-.status { margin-top: 10px; color: var(--muted); font-size: 13px; min-height: 18px; }
-
-.rowhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-
+/* Player List */
+.rowhead { display: flex; align-items: center; justify-content: space-between; }
 .player {
   display: grid;
-  grid-template-columns: 1fr 70px 92px 70px;
+  grid-template-columns: 1fr auto auto auto;
   gap: 8px;
   align-items: center;
   padding: 8px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   margin-bottom: 8px;
-  background: color-mix(in srgb, var(--card) 70%, var(--bg));
+  background: color-mix(in srgb, var(--card) 50%, var(--bg));
 }
 
-.badge { font-size: 12px; color: var(--muted); }
 .pill {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
   background: var(--input);
+  border: 1px solid var(--border);
 }
+.badge { font-size: 10px; text-transform: uppercase; color: var(--muted); }
 
-.small { font-size: 12px; color: var(--muted); }
-
+/* Lineups */
 .lineup {
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  margin-bottom: 8px;
+  border-radius: 8px;
+  margin-bottom: 12px;
   background: var(--input);
 }
-
-.current {
-  outline: 2px solid color-mix(in srgb, var(--text) 15%, transparent);
-  background: color-mix(in srgb, var(--input) 80%, var(--card));
+.lineup.current {
+  border: 2px solid var(--text);
+  background: color-mix(in srgb, var(--input) 90%, var(--text));
 }
 
-.lockedTag {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 12px;
+.lineup-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.lockedTag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--border); }
+
+.on-court { font-size: 15px; font-weight: 600; line-height: 1.4; color: var(--text); }
+
+/* NEW: Bench Visuals */
+.bench { 
+  margin-top: 8px; 
+  padding-top: 8px; 
+  border-top: 1px dashed var(--border); 
+  font-size: 13px; 
+  color: var(--muted); 
 }
+.bench strong { margin-right: 4px; color: var(--muted); opacity: 0.7; }
 
-.table { width: 100%; border-collapse: collapse; }
-.table th, .table td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; }
-.table th { color: var(--muted); font-weight: 650; font-size: 12px; }
+/* Table */
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th { text-align: left; color: var(--muted); border-bottom: 1px solid var(--border); padding: 8px; }
+.table td { border-bottom: 1px solid var(--border); padding: 8px; }
+.status { margin-top: 10px; color: var(--muted); font-size: 13px; min-height: 20px; }
+.footer { text-align: center; color: var(--muted); padding: 20px; font-size: 12px; }
 
-.footer {
-  padding: 16px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-@media (max-width: 640px) {
-  .grid { grid-template-columns: 1fr; }
-  .buttons { grid-template-columns: 1fr; }
-  .player { grid-template-columns: 1fr 70px 92px 70px; }
+@media (max-width: 600px) {
+  .player { grid-template-columns: 1fr auto auto auto; }
 }
