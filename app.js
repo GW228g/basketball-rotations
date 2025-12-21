@@ -114,27 +114,29 @@ function topActiveIds(pool) {
   return pool.filter(p => p.top).map(p => p.id);
 }
 
-function enforceTopTwo(lineup, pool) {
+function enforceTopTwo(lineup, pool, played = null) {
   if (!state.topTwoCoverage) return lineup;
 
   const topIds = topActiveIds(pool);
   if (topIds.length === 0) return lineup;
 
-  const hasTop = lineup.some(pid => topIds.includes(pid));
-  if (hasTop) return lineup;
+  // already satisfied
+  if (lineup.some(pid => topIds.includes(pid))) return lineup;
 
-  // swap a top player in
-  const pickTop = topIds[Math.floor(Math.random() * topIds.length)];
-  if (lineup.includes(pickTop)) return lineup;
+  // pick the TOP player who has played the LEAST so far (keeps it fair)
+  const pickTop =
+    topIds.slice().sort((a, b) => (played?.[a] ?? 0) - (played?.[b] ?? 0))[0];
 
-  const replaceIdx = lineup.findIndex(pid => !topIds.includes(pid));
-  if (replaceIdx >= 0) {
-    const next = lineup.slice();
-    next[replaceIdx] = pickTop;
-    return next;
-  }
+  // choose someone to replace: the NON-top in this lineup who has played the MOST
+  const replaceCandidates = lineup.filter(pid => !topIds.includes(pid));
+  if (replaceCandidates.length === 0) return lineup;
 
-  return lineup;
+  const replacePid =
+    replaceCandidates.slice().sort((a, b) => (played?.[b] ?? 0) - (played?.[a] ?? 0))[0];
+
+  const next = lineup.slice();
+  next[next.indexOf(replacePid)] = pickTop;
+  return next;
 }
 
 function violatesStreak(lineup, streakBefore) {
