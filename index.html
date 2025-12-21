@@ -2,38 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>4v4 Rotation Planner</title>
   <link rel="stylesheet" href="styles.css" />
   <meta name="theme-color" content="#0b0b0b" />
 </head>
 <body>
-<header class="header">
-  <div class="headerRow">
-    <div class="titlewrap">
-      <h1>4v4 Rotation Planner</h1>
-      <div class="sub">8 periods • 4 on court • rebuild anytime</div>
+  <header class="header">
+    <div class="headerRow">
+      <div class="titlewrap">
+        <h1>4v4 Rotation Planner</h1>
+        <div class="sub">8 periods &bull; 4 on court &bull; Rebuild anytime</div>
+      </div>
+      <button id="themeToggle" class="secondary smallbtn" type="button">Light mode</button>
     </div>
-
-<button id="themeToggle" class="secondary smallBtn" type="button">Light mode</button>
-  </div>
-</header>
+  </header>
 
   <main class="container">
     <section class="card">
       <h2>Game controls</h2>
-
       <div class="grid">
         <label class="field">
           <span class="label">Mode</span>
           <select id="mode">
+            <option value="fair_optimized" selected>Fair time optimized</option>
             <option value="sliding_fixed">Sliding rotation (fixed)</option>
-            <option value="sliding_adaptive" selected>Sliding rotation (adaptive)</option>
-            <option value="true_random_fair">True random (fair time only)</option>
-            <option value="fair_optimized">Fair time optimized</option>
+            <option value="sliding_adaptive">Sliding rotation (adaptive)</option>
+            <option value="true_random_fair">True random (fair time)</option>
           </select>
         </label>
-
         <label class="field">
           <span class="label">Current period</span>
           <select id="currentPeriod"></select>
@@ -42,15 +39,13 @@
 
       <div class="toggles">
         <label class="toggle">
-          <input type="checkbox" id="topTwoCoverage" checked />
-          <span>Top-2 coverage (at least one top player on court if possible)</span>
+          <input type="checkbox" id="topTwoCoverage" />
+          <span>Top-2 coverage (keep 1 top player on court)</span>
         </label>
-
         <label class="toggle">
-          <input type="checkbox" id="avoidStreaks" checked />
-          <span>Avoid long streaks (limit 2 in a row when possible)</span>
+          <input type="checkbox" id="avoidStreaks" />
+          <span>Avoid long streaks (limit 2 in a row)</span>
         </label>
-
         <label class="toggle">
           <input type="checkbox" id="autoRebuild" />
           <span>Auto rebuild when roster changes</span>
@@ -58,26 +53,27 @@
       </div>
 
       <div class="buttons">
-        <button id="rebuildBtn">Rebuild from current period</button>
+        <button id="rebuildBtn">Rebuild from current</button>
         <button id="lockCurrentBtn" class="secondary">Lock current period</button>
-        <button id="unlockAllBtn" class="secondary">Unlock all future</button>
       </div>
-
       <div class="buttons">
-        <button id="resetGameBtn" class="secondary">Reset game (keep roster)</button>
+        <button id="shareBtn" class="secondary">📋 Copy Schedule</button>
+        <button id="unlockAllBtn" class="secondary">Unlock future</button>
+      </div>
+      <div class="buttons">
+        <button id="resetGameBtn" class="danger">Reset game (keep roster)</button>
         <button id="resetAllBtn" class="danger">Reset everything</button>
       </div>
-
       <div id="status" class="status"></div>
     </section>
 
     <section class="card">
       <div class="rowhead">
         <h2>Players</h2>
-        <button id="saveRosterBtn" class="secondary">Save roster</button>
+        <button id="saveRosterBtn" class="secondary smallbtn" type="button">Save roster</button>
       </div>
       <div class="hint">
-        Use Available for arrivals. Use Out for injured or leaving early. Mark Top for your best 1 to 2 players.
+        Use <strong>Avail</strong> for arrivals. Use <strong>Out</strong> for injuries. Mark <strong>Top</strong> for key ball handlers.
       </div>
       <div id="players"></div>
     </section>
@@ -85,7 +81,7 @@
     <section class="card">
       <h2>Lineups</h2>
       <div class="hint">
-        Tap “Lock current period” once you are committed. Past periods never change.
+        Tap "Lock" to finalize a period. Locked periods won't change during rebuilds.
       </div>
       <div id="lineups"></div>
     </section>
@@ -99,7 +95,6 @@
   <footer class="footer">
     Tip: Add to Home Screen for a fast app-like experience.
   </footer>
-
   <script src="app.js"></script>
 </body>
 </html>
