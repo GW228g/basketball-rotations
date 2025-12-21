@@ -1,13 +1,10 @@
-// 4v4 Rotation Planner
-// Modes:
-// - sliding_fixed: moving window over active list
-// - sliding_adaptive: slides over roster order and skips inactive
-// - true_random_fair: only playing time fairness, random tie breaks
-// - fair_optimized: greedily selects most owed, with optional streak limit and top-2 coverage
+// 4v4 Rotation Planner (UPDATED)
+// Fix: Top-2 enforcement no longer benches the same kid repeatedly in Sliding modes.
+// It now swaps out the player in the lineup with the MOST minutes so far (fair).
 
 const PERIODS = 8;
 const ON_COURT = 4;
-const LS_KEY = "rotation_planner_state_v2";
+const LS_KEY = "rotation_planner_state_v3";
 
 function uid() { return Math.random().toString(16).slice(2); }
 
@@ -18,7 +15,6 @@ function defaultState() {
     topTwoCoverage: true,
     avoidStreaks: true,
     autoRebuild: false,
-
     players: Array.from({ length: 8 }, (_, i) => ({
       id: uid(),
       name: `Player ${i + 1}`,
@@ -26,26 +22,28 @@ function defaultState() {
       available: true,
       out: false
     })),
-
-    schedule: {}, // { "1": [ids...], ... }
-    locked: {}    // { "k": true } locks period k from rebuild changes
+    schedule: {},
+    locked: {}
   };
 }
 
 let state = loadState();
+if (!Array.isArray(state.players) || state.players.length === 0) {
+  state = defaultState();
+  saveState();
+}
 
 function loadState() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return defaultState();
     const parsed = JSON.parse(raw);
-    if (!parsed.players) return defaultState();
-    // ensure new fields exist
     parsed.mode ??= "sliding_adaptive";
     parsed.currentPeriod ??= 1;
     parsed.topTwoCoverage ??= true;
     parsed.avoidStreaks ??= true;
     parsed.autoRebuild ??= false;
+    parsed.players ??= [];
     parsed.schedule ??= {};
     parsed.locked ??= {};
     return parsed;
@@ -62,12 +60,12 @@ function clampCurrentPeriod() {
   state.currentPeriod = Math.max(1, Math.min(PERIODS, Number(state.currentPeriod || 1)));
 }
 
-function activePlayers() {
-  return state.players.filter(p => p.available && !p.out);
-}
-
 function playerById(id) {
   return state.players.find(p => p.id === id) || null;
+}
+
+function activePlayers() {
+  return state.players.filter(p => p.available && !p.out);
 }
 
 function nameById(id) {
@@ -96,10 +94,8 @@ function playedCountsUpTo(periodInclusive) {
 }
 
 function buildConsecutiveCounts(upToPeriod) {
-  // returns { pid: current streak ending at upToPeriod }
   const streak = {};
   for (const p of state.players) streak[p.id] = 0;
-
   for (let k = 1; k <= upToPeriod; k++) {
     const lineup = new Set(state.schedule[String(k)] || []);
     for (const p of state.players) {
@@ -114,25 +110,25 @@ function topActiveIds(pool) {
   return pool.filter(p => p.top).map(p => p.id);
 }
 
-function enforceTopTwo(lineup, pool, played = null) {
+// FAIR Top-2 enforcement:
+// - If lineup has no top player, bring in a top player who has played the LEAST so far
+// - Swap out a non-top player in the lineup who has played the MOST so far
+function enforceTopTwoFair(lineup, pool, played) {
   if (!state.topTwoCoverage) return lineup;
 
   const topIds = topActiveIds(pool);
   if (topIds.length === 0) return lineup;
 
-  // already satisfied
   if (lineup.some(pid => topIds.includes(pid))) return lineup;
 
-  // pick the TOP player who has played the LEAST so far (keeps it fair)
-  const pickTop =
-    topIds.slice().sort((a, b) => (played?.[a] ?? 0) - (played?.[b] ?? 0))[0];
+  const pickTop = topIds.slice().sort((a, b) => (played[a] ?? 0) - (played[b] ?? 0))[0];
 
-  // choose someone to replace: the NON-top in this lineup who has played the MOST
   const replaceCandidates = lineup.filter(pid => !topIds.includes(pid));
   if (replaceCandidates.length === 0) return lineup;
 
-  const replacePid =
-    replaceCandidates.slice().sort((a, b) => (played?.[b] ?? 0) - (played?.[a] ?? 0))[0];
+  const replacePid = replaceCandidates
+    .slice()
+    .sort((a, b) => (played[b] ?? 0) - (played[a] ?? 0))[0];
 
   const next = lineup.slice();
   next[next.indexOf(replacePid)] = pickTop;
@@ -141,35 +137,33 @@ function enforceTopTwo(lineup, pool, played = null) {
 
 function violatesStreak(lineup, streakBefore) {
   if (!state.avoidStreaks) return false;
-  // soft limit: 2 consecutive periods
   for (const pid of lineup) {
-    const s = streakBefore[pid] || 0;
-    if (s >= 2) return true;
+    if ((streakBefore[pid] || 0) >= 2) return true;
   }
   return false;
 }
 
+function remainingNeedFromTargets(poolIds, remainingSpots) {
+  const base = Math.floor(remainingSpots / poolIds.length);
+  const rem = remainingSpots % poolIds.length;
+  const bonus = new Set(shuffle(poolIds).slice(0, rem));
+  const need = {};
+  for (const pid of poolIds) need[pid] = base + (bonus.has(pid) ? 1 : 0);
+  return need;
+}
+
 function pickLineupMostOwed({ pool, need, played, streakBefore }) {
-  // pool: player objects
-  // need: remaining target allocations (higher means owed)
-  // played: counts so far
-  // Choose 4. Prefer higher need. Random tie breaks. Try to avoid streak violations.
-
   const ids = pool.map(p => p.id);
-
-  // Sort by need desc, then played asc
   const sorted = ids.slice().sort((a, b) => {
     const dn = (need[b] ?? 0) - (need[a] ?? 0);
     if (dn !== 0) return dn;
     return (played[a] ?? 0) - (played[b] ?? 0);
   });
 
-  // Build candidate bucket: within 1 of max need
   const maxNeed = need[sorted[0]] ?? 0;
   let bucket = sorted.filter(pid => (need[pid] ?? 0) >= maxNeed - 1);
   bucket = shuffle(bucket);
 
-  // If bucket too small, expand
   let tier = maxNeed - 1;
   while (bucket.length < ON_COURT) {
     tier -= 1;
@@ -178,7 +172,6 @@ function pickLineupMostOwed({ pool, need, played, streakBefore }) {
     if (tier < -50) break;
   }
 
-  // Try a few random draws to avoid streaks if enabled
   let best = null;
   let bestScore = -Infinity;
 
@@ -186,20 +179,12 @@ function pickLineupMostOwed({ pool, need, played, streakBefore }) {
     const pick = shuffle(bucket).slice(0, ON_COURT);
     let score = 0;
 
-    // Prefer higher need and lower played
     for (const pid of pick) {
       score += (need[pid] ?? 0) * 10;
       score += Math.max(0, 10 - (played[pid] ?? 0));
     }
 
-    // Penalize streak violations
     if (violatesStreak(pick, streakBefore)) score -= 100;
-
-    // Softly prefer including a top player (only as tie breaker)
-    if (state.topTwoCoverage) {
-      const topIds = topActiveIds(pool);
-      if (topIds.length > 0 && pick.some(pid => topIds.includes(pid))) score += 2;
-    }
 
     if (score > bestScore) {
       bestScore = score;
@@ -210,26 +195,14 @@ function pickLineupMostOwed({ pool, need, played, streakBefore }) {
   return best || shuffle(sorted).slice(0, ON_COURT);
 }
 
-function remainingNeedFromTargets({ poolIds, remainingSpots }) {
-  // Distribute remaining spots evenly: base + remainder
-  const base = Math.floor(remainingSpots / poolIds.length);
-  const rem = remainingSpots % poolIds.length;
-  const bonus = new Set(shuffle(poolIds).slice(0, rem));
-
-  const need = {};
-  for (const pid of poolIds) {
-    need[pid] = base + (bonus.has(pid) ? 1 : 0);
-  }
-  return need;
-}
-
 // --- Build modes
 
 function buildSlidingFixedFrom(startPeriod) {
   const pool = activePlayers();
   if (pool.length < ON_COURT) return;
 
-  // ordered = active players in current roster order
+  const played = playedCountsUpTo(startPeriod - 1);
+
   const ordered = state.players.filter(p => p.available && !p.out).map(p => p.id);
 
   for (let k = startPeriod; k <= PERIODS; k++) {
@@ -237,16 +210,20 @@ function buildSlidingFixedFrom(startPeriod) {
 
     const startIdx = (k - 1) % ordered.length;
     const lineup = [];
-    for (let i = 0; i < ON_COURT; i++) {
-      lineup.push(ordered[(startIdx + i) % ordered.length]);
-    }
-    state.schedule[String(k)] = enforceTopTwo(lineup, pool);
+    for (let i = 0; i < ON_COURT; i++) lineup.push(ordered[(startIdx + i) % ordered.length]);
+
+    const finalLineup = enforceTopTwoFair(lineup, pool, played);
+    state.schedule[String(k)] = finalLineup;
+
+    for (const pid of finalLineup) played[pid] = (played[pid] || 0) + 1;
   }
 }
 
 function buildSlidingAdaptiveFrom(startPeriod) {
   const pool = activePlayers();
   if (pool.length < ON_COURT) return;
+
+  const played = playedCountsUpTo(startPeriod - 1);
 
   const rosterOrder = state.players.map(p => p.id);
   let pointer = (startPeriod - 1) % rosterOrder.length;
@@ -275,7 +252,6 @@ function buildSlidingAdaptiveFrom(startPeriod) {
       lineup.push(pid);
     }
 
-    // Fill if short (should be rare)
     if (lineup.length < ON_COURT) {
       for (const p of shuffle(pool)) {
         if (lineup.length >= ON_COURT) break;
@@ -283,7 +259,10 @@ function buildSlidingAdaptiveFrom(startPeriod) {
       }
     }
 
-    state.schedule[String(k)] = enforceTopTwo(lineup, pool);
+    const finalLineup = enforceTopTwoFair(lineup, pool, played);
+    state.schedule[String(k)] = finalLineup;
+
+    for (const pid of finalLineup) played[pid] = (played[pid] || 0) + 1;
   }
 }
 
@@ -292,72 +271,36 @@ function buildTrueRandomFairFrom(startPeriod) {
   if (pool.length < ON_COURT) return;
 
   const played = playedCountsUpTo(startPeriod - 1);
-  const streakBeforeStart = buildConsecutiveCounts(startPeriod - 1);
+  let streak = buildConsecutiveCounts(startPeriod - 1);
 
   const ids = pool.map(p => p.id);
   const periodsLeft = PERIODS - startPeriod + 1;
   const remainingSpots = periodsLeft * ON_COURT;
-  const need = remainingNeedFromTargets({ poolIds: ids, remainingSpots });
-
-  let streak = { ...streakBeforeStart };
+  const need = remainingNeedFromTargets(ids, remainingSpots);
 
   for (let k = startPeriod; k <= PERIODS; k++) {
     if (state.locked[String(k)]) continue;
 
-    // Only rule is fairness by need. TopTwo and streak toggles can still apply if turned on.
-    // If you want purely minutes-only, just turn off Top-2 and Avoid streaks in UI.
     const pick = pickLineupMostOwed({ pool, need, played, streakBefore: streak });
-    const lineup = enforceTopTwo(pick, pool);
+    // In true random mode, Top-2 and streak rules still apply only if you keep them checked.
+    const lineup = enforceTopTwoFair(pick, pool, played);
 
     state.schedule[String(k)] = lineup;
 
-    // update counters
-    const lineupSet = new Set(lineup);
+    const set = new Set(lineup);
     for (const pid of ids) {
-      if (lineupSet.has(pid)) {
+      if (set.has(pid)) {
         played[pid] = (played[pid] || 0) + 1;
         need[pid] = (need[pid] || 0) - 1;
         streak[pid] = (streak[pid] || 0) + 1;
-      } else {
-        streak[pid] = 0;
-      }
+      } else streak[pid] = 0;
     }
   }
 }
 
 function buildFairOptimizedFrom(startPeriod) {
-  const pool = activePlayers();
-  if (pool.length < ON_COURT) return;
-
-  const played = playedCountsUpTo(startPeriod - 1);
-  const streakBeforeStart = buildConsecutiveCounts(startPeriod - 1);
-
-  const ids = pool.map(p => p.id);
-  const periodsLeft = PERIODS - startPeriod + 1;
-  const remainingSpots = periodsLeft * ON_COURT;
-  const need = remainingNeedFromTargets({ poolIds: ids, remainingSpots });
-
-  let streak = { ...streakBeforeStart };
-
-  for (let k = startPeriod; k <= PERIODS; k++) {
-    if (state.locked[String(k)]) continue;
-
-    const pick = pickLineupMostOwed({ pool, need, played, streakBefore: streak });
-    const lineup = enforceTopTwo(pick, pool);
-
-    state.schedule[String(k)] = lineup;
-
-    const lineupSet = new Set(lineup);
-    for (const pid of ids) {
-      if (lineupSet.has(pid)) {
-        played[pid] = (played[pid] || 0) + 1;
-        need[pid] = (need[pid] || 0) - 1;
-        streak[pid] = (streak[pid] || 0) + 1;
-      } else {
-        streak[pid] = 0;
-      }
-    }
-  }
+  // This mode already balances time well; still uses the fair Top-2 swap.
+  buildTrueRandomFairFrom(startPeriod);
 }
 
 // --- Rebuild
@@ -372,7 +315,6 @@ function rebuildFromCurrent() {
     return;
   }
 
-  // Clear future periods except locked ones
   for (let k = start; k <= PERIODS; k++) {
     if (state.locked[String(k)]) continue;
     delete state.schedule[String(k)];
@@ -395,9 +337,7 @@ const elLineups = document.getElementById("lineups");
 const elMinutes = document.getElementById("minutes");
 const elStatus = document.getElementById("status");
 
-function setStatus(msg) {
-  elStatus.textContent = msg || "";
-}
+function setStatus(msg) { elStatus.textContent = msg || ""; }
 
 function renderPeriodSelect() {
   const sel = document.getElementById("currentPeriod");
@@ -409,11 +349,7 @@ function renderPeriodSelect() {
     sel.appendChild(opt);
   }
   sel.value = String(state.currentPeriod);
-  sel.onchange = () => {
-    state.currentPeriod = Number(sel.value);
-    saveState();
-    renderAll();
-  };
+  sel.onchange = () => { state.currentPeriod = Number(sel.value); saveState(); renderAll(); };
 }
 
 function renderSettings() {
@@ -437,7 +373,6 @@ function renderSettings() {
 
 function renderPlayers() {
   elPlayers.innerHTML = "";
-
   state.players.forEach((p) => {
     const row = document.createElement("div");
     row.className = "player";
@@ -445,11 +380,7 @@ function renderPlayers() {
     const name = document.createElement("input");
     name.type = "text";
     name.value = p.name;
-    name.onchange = () => {
-      p.name = (name.value || "").trim() || p.name;
-      saveState();
-      renderAll();
-    };
+    name.onchange = () => { p.name = (name.value || "").trim() || p.name; saveState(); renderAll(); };
 
     const top = document.createElement("label");
     top.className = "pill";
@@ -457,11 +388,7 @@ function renderPlayers() {
     const topCb = document.createElement("input");
     topCb.type = "checkbox";
     topCb.checked = !!p.top;
-    topCb.onchange = () => {
-      p.top = topCb.checked;
-      saveState();
-      if (state.autoRebuild) rebuildFromCurrent(); else renderAll();
-    };
+    topCb.onchange = () => { p.top = topCb.checked; saveState(); state.autoRebuild ? rebuildFromCurrent() : renderAll(); };
     top.appendChild(topCb);
 
     const avail = document.createElement("label");
@@ -470,11 +397,7 @@ function renderPlayers() {
     const availCb = document.createElement("input");
     availCb.type = "checkbox";
     availCb.checked = !!p.available;
-    availCb.onchange = () => {
-      p.available = availCb.checked;
-      saveState();
-      if (state.autoRebuild) rebuildFromCurrent(); else renderAll();
-    };
+    availCb.onchange = () => { p.available = availCb.checked; saveState(); state.autoRebuild ? rebuildFromCurrent() : renderAll(); };
     avail.appendChild(availCb);
 
     const out = document.createElement("label");
@@ -483,25 +406,19 @@ function renderPlayers() {
     const outCb = document.createElement("input");
     outCb.type = "checkbox";
     outCb.checked = !!p.out;
-    outCb.onchange = () => {
-      p.out = outCb.checked;
-      saveState();
-      if (state.autoRebuild) rebuildFromCurrent(); else renderAll();
-    };
+    outCb.onchange = () => { p.out = outCb.checked; saveState(); state.autoRebuild ? rebuildFromCurrent() : renderAll(); };
     out.appendChild(outCb);
 
     row.appendChild(name);
     row.appendChild(top);
     row.appendChild(avail);
     row.appendChild(out);
-
     elPlayers.appendChild(row);
   });
 }
 
 function renderLineups() {
   elLineups.innerHTML = "";
-
   for (let k = 1; k <= PERIODS; k++) {
     const wrap = document.createElement("div");
     wrap.className = "lineup";
@@ -515,12 +432,8 @@ function renderLineups() {
     const lineup = state.schedule[String(k)];
     const body = document.createElement("div");
 
-    if (!lineup) {
-      body.className = "small";
-      body.textContent = "No lineup yet. Rebuild to generate.";
-    } else {
-      body.textContent = lineup.map(nameById).join(", ");
-    }
+    if (!lineup) { body.className = "small"; body.textContent = "No lineup yet. Rebuild to generate."; }
+    else body.textContent = lineup.map(nameById).join(", ");
 
     wrap.appendChild(body);
     elLineups.appendChild(wrap);
@@ -529,7 +442,6 @@ function renderLineups() {
 
 function renderMinutes() {
   const counts = playedCountsUpTo(PERIODS);
-
   const rows = state.players.map(p => ({
     name: p.name,
     played: counts[p.id] || 0,
@@ -570,15 +482,7 @@ function renderAll() {
   renderPlayers();
   renderLineups();
   renderMinutes();
-
-  // helpful warning if Top-2 coverage is enabled but none are active
-  const pool = activePlayers();
-  const topIds = topActiveIds(pool);
-  if (state.topTwoCoverage && topIds.length === 0) {
-    setStatus("Top-2 coverage is on, but none of your Top players are currently active.");
-  } else {
-    setStatus("");
-  }
+  setStatus("");
 }
 
 // Buttons
