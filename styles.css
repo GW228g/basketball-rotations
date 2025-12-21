@@ -6,7 +6,22 @@
   --muted: #bdbdbd;
   --accent: #2d2d2d;
   --danger: #a33a3a;
+  --input: #0f0f0f;
+  --btn: #1d1d1d;
+
   font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+[data-theme="light"] {
+  --bg: #f6f6f6;
+  --card: #ffffff;
+  --border: #d8d8d8;
+  --text: #151515;
+  --muted: #5a5a5a;
+  --accent: #e8e8e8;
+  --danger: #b94a4a;
+  --input: #ffffff;
+  --btn: #f1f1f1;
 }
 
 * { box-sizing: border-box; }
@@ -16,10 +31,17 @@ a { color: inherit; }
 .header {
   padding: 14px 14px 10px 14px;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, #0f0f0f, #0b0b0b);
+  background: linear-gradient(180deg, rgba(0,0,0,0.08), rgba(0,0,0,0));
   position: sticky;
   top: 0;
   z-index: 5;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .titlewrap h1 { margin: 0; font-size: 20px; }
@@ -58,12 +80,12 @@ select, input[type="text"] {
   padding: 10px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: #0f0f0f;
+  background: var(--input);
   color: var(--text);
 }
 
 .toggles { display: grid; gap: 10px; margin: 10px 0; }
-.toggle { display: flex; gap: 10px; align-items: center; color: #dedede; }
+.toggle { display: flex; gap: 10px; align-items: center; color: inherit; }
 .toggle input { transform: scale(1.1); }
 
 .buttons {
@@ -77,14 +99,22 @@ button {
   padding: 10px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: #1d1d1d;
+  background: var(--btn);
   color: var(--text);
   font-weight: 650;
 }
 
-button.secondary { background: #0f0f0f; color: #e3e3e3; }
-button.danger { background: #2a0f0f; border-color: #4a1b1b; color: #ffdede; }
+button.secondary { background: var(--input); color: var(--text); }
+button.danger { background: color-mix(in srgb, var(--danger) 25%, var(--btn)); border-color: color-mix(in srgb, var(--danger) 60%, var(--border)); color: var(--text); }
 button:active { transform: scale(0.99); }
+
+.smallBtn {
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-weight: 650;
+  font-size: 12px;
+  white-space: nowrap;
+}
 
 .status { margin-top: 10px; color: var(--muted); font-size: 13px; min-height: 18px; }
 
@@ -99,6 +129,7 @@ button:active { transform: scale(0.99); }
   border: 1px solid var(--border);
   border-radius: 12px;
   margin-bottom: 8px;
+  background: color-mix(in srgb, var(--card) 70%, var(--bg));
 }
 
 .badge { font-size: 12px; color: var(--muted); }
@@ -110,7 +141,7 @@ button:active { transform: scale(0.99); }
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 8px 10px;
-  background: #0f0f0f;
+  background: var(--input);
 }
 
 .small { font-size: 12px; color: var(--muted); }
@@ -120,12 +151,12 @@ button:active { transform: scale(0.99); }
   border: 1px solid var(--border);
   border-radius: 12px;
   margin-bottom: 8px;
-  background: #0f0f0f;
+  background: var(--input);
 }
 
 .current {
-  outline: 2px solid #343434;
-  background: #101010;
+  outline: 2px solid color-mix(in srgb, var(--text) 15%, transparent);
+  background: color-mix(in srgb, var(--input) 80%, var(--card));
 }
 
 .lockedTag {
@@ -145,7 +176,7 @@ button:active { transform: scale(0.99); }
 .footer {
   padding: 16px;
   text-align: center;
-  color: #9a9a9a;
+  color: var(--muted);
   font-size: 12px;
 }
 
