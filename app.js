@@ -1,13 +1,13 @@
-// [cite: 271-272] Constants
+// Constants
 const PERIODS = 8;
 const ON_COURT = 4;
-const LS_KEY = "rotation_planner_state_v5";
+const LS_KEY = "rotation_planner_state_v6"; // Bump version
 const THEME_KEY = "rotation_planner_theme";
 
 // Helper: unique ID
 const uid = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
-// [cite: 276-293] Default State
+// Default State
 function defaultState() {
   return {
     mode: "fair_optimized",
@@ -15,29 +15,27 @@ function defaultState() {
     topTwoCoverage: false,
     avoidStreaks: false,
     autoRebuild: false,
-    // Create 8 default players
     players: Array.from({ length: 8 }, (_, i) => ({
       id: uid(),
       name: `Player ${i + 1}`,
-      top: i < 2, // First 2 marked as top by default
+      top: i < 2,
       available: true,
       out: false
     })),
-    schedule: {}, // { "1": [id, id...], "2": ... }
-    locked: {}    // { "1": true, ... }
+    schedule: {},
+    locked: {}
   };
 }
 
 let state = loadState();
+let draggedItemIndex = null; // Track drag
 
 // --- Persistence ---
 function loadState() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return defaultState();
-    const parsed = JSON.parse(raw);
-    // Merge with default to handle schema updates
-    return { ...defaultState(), ...parsed };
+    return { ...defaultState(), ...JSON.parse(raw) };
   } catch {
     return defaultState();
   }
@@ -48,17 +46,10 @@ function saveState() {
 }
 
 // --- Logic Helpers ---
-
-// [cite: 323] Find player object by ID
 const getPlayer = (id) => state.players.find(p => p.id === id);
 const getName = (id) => getPlayer(id)?.name || "Unknown";
+function getActivePool() { return state.players.filter(p => p.available && !p.out); }
 
-// [cite: 328] Get Active Pool
-function getActivePool() {
-  return state.players.filter(p => p.available && !p.out);
-}
-
-// [cite: 335-344] Fisher-Yates Shuffle
 function shuffle(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -68,7 +59,6 @@ function shuffle(arr) {
   return a;
 }
 
-// [cite: 345-355] Count minutes played so far
 function getPlayedCounts(upToPeriod) {
   const counts = {};
   state.players.forEach(p => counts[p.id] = 0);
@@ -79,7 +69,6 @@ function getPlayedCounts(upToPeriod) {
   return counts;
 }
 
-// [cite: 357-366] Count consecutive periods (streak)
 function getStreakCounts(upToPeriod) {
   const streak = {};
   state.players.forEach(p => streak[p.id] = 0);
@@ -94,136 +83,98 @@ function getStreakCounts(upToPeriod) {
 }
 
 // --- Core Generator Logic ---
-
-/**
- * Calculates a "penalty score" for a potential lineup based on streaks.
- * 0 = Perfect, High number = Bad streak violation.
- * This replaces the strict true/false check.
- */
 function calculateStreakPenalty(lineup, streakBefore) {
   if (!state.avoidStreaks) return 0;
   let penalty = 0;
   for (const pid of lineup) {
     const s = streakBefore[pid] || 0;
-    if (s >= 2) penalty += (s * 10); // Heavy penalty for 3rd+ period
-    else if (s === 1) penalty += 1;  // Slight preference to rotate if possible
+    if (s >= 2) penalty += (s * 10);
+    else if (s === 1) penalty += 1;
   }
   return penalty;
 }
 
-// [cite: 373-392] Enforce Top-2 Coverage
 function enforceTopTwo(lineup, pool, playedCounts) {
   if (!state.topTwoCoverage) return lineup;
-  
   const tops = pool.filter(p => p.top).map(p => p.id);
   const lineupSet = new Set(lineup);
-  
-  // If we already have a top player, good.
   if (tops.some(id => lineupSet.has(id))) return lineup;
   if (tops.length === 0) return lineup;
 
-  // We need to swap someone in.
-  // 1. Pick Top player with LEAST minutes.
   const bestTop = tops.sort((a, b) => (playedCounts[a] || 0) - (playedCounts[b] || 0))[0];
-
-  // 2. Pick non-top player in lineup with MOST minutes to swap out.
   const candidates = lineup.filter(id => !tops.includes(id));
-  if (candidates.length === 0) return lineup; // Can't swap if everyone is top
-  
+  if (candidates.length === 0) return lineup;
   const worstNonTop = candidates.sort((a, b) => (playedCounts[b] || 0) - (playedCounts[a] || 0))[0];
 
-  // Perform swap
   return lineup.map(id => id === worstNonTop ? bestTop : id);
 }
 
-// [cite: 402] Main Logic: Fair Optimized
 function buildFairOptimized(startPeriod) {
   const pool = getActivePool();
-  // Edge Case: Not enough players
   if (pool.length < ON_COURT) {
-    setStatus(`Need ${ON_COURT} active players (have ${pool.length}).`);
+    setStatus(`Need ${ON_COURT} active players.`);
     return;
   }
-  // Edge Case: Exactly 4 players
   if (pool.length === ON_COURT) {
     for (let k = startPeriod; k <= PERIODS; k++) {
-      if (!state.locked[String(k)]) {
-        state.schedule[String(k)] = pool.map(p => p.id);
-      }
+      if (!state.locked[String(k)]) state.schedule[String(k)] = pool.map(p => p.id);
     }
     return;
   }
 
   const poolIds = pool.map(p => p.id);
-
   for (let k = startPeriod; k <= PERIODS; k++) {
     if (state.locked[String(k)]) continue;
-
     const played = getPlayedCounts(k);
     const streak = getStreakCounts(k);
 
-    // 1. Sort by minutes played (Ascending)
-    // [cite: 403] Sort logic
     const sorted = poolIds.slice().sort((a, b) => {
       const diff = (played[a] || 0) - (played[b] || 0);
       if (diff !== 0) return diff;
-      return Math.random() - 0.5; // Randomize ties
+      return Math.random() - 0.5;
     });
 
-    // 2. Try to form a lineup from the lowest-minute players
-    // We take the top X candidates (e.g. 6) and shuffle them to find the best streak combination
     const candidateCount = Math.min(sorted.length, ON_COURT + 2); 
     const candidates = sorted.slice(0, candidateCount);
-
     let bestLineup = candidates.slice(0, ON_COURT);
     let minPenalty = Infinity;
 
-    // Monte Carlo attempt: Try 50 shuffles of the candidates to minimize penalty
     for (let i = 0; i < 50; i++) {
       const shuff = shuffle(candidates).slice(0, ON_COURT);
       const p = calculateStreakPenalty(shuff, streak);
       if (p < minPenalty) {
         minPenalty = p;
         bestLineup = shuff;
-        if (p === 0) break; // Perfect lineup found
+        if (p === 0) break;
       }
     }
-
-    // 3. Apply Top-2 constraint
     bestLineup = enforceTopTwo(bestLineup, pool, played);
-
     state.schedule[String(k)] = bestLineup;
   }
 }
 
 // --- Application Flow ---
-
 function rebuildFromCurrent() {
   const start = Math.max(1, state.currentPeriod);
-  
-  // Clear future unlocked periods
   for (let k = start; k <= PERIODS; k++) {
     if (!state.locked[String(k)]) delete state.schedule[String(k)];
   }
-
-  const mode = state.mode;
-  // Map simplified modes (Removed legacy "sliding" logic for brevity, defaulted to fair)
-  // You can re-add complex sliding logic here if strictly needed, 
-  // but "Fair Optimized" is usually what users want.
-  if (mode === "true_random_fair") {
-     // reuse optimized but shuffle purely
-     buildFairOptimized(start); 
-  } else {
-     buildFairOptimized(start);
-  }
-
+  buildFairOptimized(start);
   saveState();
   renderAll();
   setStatus(`Rebuilt starting from Period ${start}`);
 }
 
-// --- UI Rendering ---
+// --- List Reordering Logic ---
+function movePlayer(fromIndex, toIndex) {
+  if (toIndex < 0 || toIndex >= state.players.length) return;
+  const item = state.players.splice(fromIndex, 1)[0];
+  state.players.splice(toIndex, 0, item);
+  saveState();
+  renderAll();
+}
 
+// --- UI Rendering ---
 function renderAll() {
   renderPeriodSelect();
   renderSettings();
@@ -246,12 +197,11 @@ function renderPeriodSelect() {
   sel.onchange = () => {
     state.currentPeriod = Number(sel.value);
     saveState();
-    renderLineups(); // Re-render to update highlights
+    renderLineups();
   };
 }
 
 function renderSettings() {
-  // Bind simple checkboxes
   const bind = (id, key) => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -274,19 +224,40 @@ function renderPlayers() {
   if (!div) return;
   div.innerHTML = "";
   
-  state.players.forEach(p => {
+  state.players.forEach((p, index) => {
     const row = document.createElement("div");
     row.className = "player";
+    row.draggable = true; // HTML5 Drag
     
-    // Name Input
+    // Drag Events
+    row.ondragstart = (e) => {
+      draggedItemIndex = index;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    };
+    row.ondragover = (e) => e.preventDefault();
+    row.ondragenter = (e) => e.preventDefault();
+    row.ondragend = () => row.classList.remove('dragging');
+    row.ondrop = (e) => {
+      e.preventDefault();
+      movePlayer(draggedItemIndex, index);
+    };
+
+    // 1. Drag Handle
+    const handle = document.createElement("div");
+    handle.className = "drag-handle";
+    handle.innerHTML = "☰";
+    row.appendChild(handle);
+    
+    // 2. Name Input
     const nameInput = document.createElement("input");
     nameInput.type = "text";
     nameInput.value = p.name;
-    // Mobile UX: "Done" key
     nameInput.enterKeyHint = "done"; 
     nameInput.onchange = () => { p.name = nameInput.value; saveState(); renderAll(); };
+    row.appendChild(nameInput);
     
-    // Helper for Pill Checkboxes
+    // 3. Status Pills
     const makePill = (lbl, key) => {
       const label = document.createElement("label");
       label.className = "pill";
@@ -303,11 +274,29 @@ function renderPlayers() {
       label.appendChild(cb);
       return label;
     };
-
-    row.appendChild(nameInput);
     row.appendChild(makePill("Top", "top"));
     row.appendChild(makePill("Avail", "available"));
     row.appendChild(makePill("Out", "out"));
+
+    // 4. Move Arrows (Mobile Friendly)
+    const moveControls = document.createElement("div");
+    moveControls.className = "move-controls";
+    if (index > 0) {
+      const upBtn = document.createElement("button");
+      upBtn.className = "move-btn";
+      upBtn.textContent = "▲";
+      upBtn.onclick = () => movePlayer(index, index - 1);
+      moveControls.appendChild(upBtn);
+    }
+    if (index < state.players.length - 1) {
+      const downBtn = document.createElement("button");
+      downBtn.className = "move-btn";
+      downBtn.textContent = "▼";
+      downBtn.onclick = () => movePlayer(index, index + 1);
+      moveControls.appendChild(downBtn);
+    }
+    row.appendChild(moveControls);
+
     div.appendChild(row);
   });
 }
@@ -316,18 +305,15 @@ function renderLineups() {
   const div = document.getElementById("lineups");
   if (!div) return;
   div.innerHTML = "";
-
   const activePool = getActivePool().map(p => p.id);
 
   for (let k = 1; k <= PERIODS; k++) {
     const sk = String(k);
     const lineup = state.schedule[sk];
     const locked = state.locked[sk];
-
     const wrap = document.createElement("div");
     wrap.className = `lineup ${k === state.currentPeriod ? "current" : ""}`;
     
-    // Header
     const head = document.createElement("div");
     head.className = "lineup-header";
     head.innerHTML = `<span><strong>Period ${k}</strong></span> ${locked ? '<span class="lockedTag">Locked</span>' : ''}`;
@@ -339,17 +325,13 @@ function renderLineups() {
       continue;
     }
 
-    // On Court
     const onCourtNames = lineup.map(getName).join(", ");
     wrap.innerHTML += `<div class="on-court">${onCourtNames}</div>`;
-
-    // Bench (Who is active but NOT in lineup)
     const benchIds = activePool.filter(id => !lineup.includes(id));
     if (benchIds.length > 0) {
       const benchNames = benchIds.map(getName).join(", ");
       wrap.innerHTML += `<div class="bench"><strong>Sitting:</strong> ${benchNames}</div>`;
     }
-
     div.appendChild(wrap);
   }
 }
@@ -358,10 +340,7 @@ function renderMinutes() {
   const div = document.getElementById("minutes");
   if (!div) return;
   const counts = getPlayedCounts(PERIODS + 1);
-  
-  // Sort by name for table
   const rows = state.players.slice().sort((a,b) => a.name.localeCompare(b.name));
-
   let html = `<table class="table"><thead><tr><th>Player</th><th>Played</th></tr></thead><tbody>`;
   rows.forEach(p => {
     html += `<tr>
@@ -380,23 +359,19 @@ function setStatus(msg) {
 }
 
 // --- Actions & Event Listeners ---
-
 document.getElementById("rebuildBtn").onclick = rebuildFromCurrent;
-
 document.getElementById("lockCurrentBtn").onclick = () => {
   state.locked[String(state.currentPeriod)] = true;
   saveState();
   renderAll();
   setStatus(`Period ${state.currentPeriod} locked.`);
 };
-
 document.getElementById("unlockAllBtn").onclick = () => {
   state.locked = {};
   saveState();
   renderAll();
   setStatus("All periods unlocked.");
 };
-
 document.getElementById("resetGameBtn").onclick = () => {
   if(!confirm("Clear schedule? (Roster stays)")) return;
   state.schedule = {};
@@ -406,19 +381,17 @@ document.getElementById("resetGameBtn").onclick = () => {
   renderAll();
   setStatus("Schedule reset.");
 };
-
 document.getElementById("resetAllBtn").onclick = () => {
   if(!confirm("Full Reset? (Deletes Roster)")) return;
   localStorage.removeItem(LS_KEY);
   location.reload();
 };
-
 document.getElementById("saveRosterBtn").onclick = () => {
   saveState();
   setStatus("Roster saved.");
 };
 
-// New: Copy to Clipboard
+// Share / Copy
 document.getElementById("shareBtn").onclick = () => {
   let text = "🏀 Rotation:\n";
   for(let k=1; k<=PERIODS; k++) {
@@ -430,17 +403,40 @@ document.getElementById("shareBtn").onclick = () => {
     .catch(() => setStatus("Copy failed."));
 };
 
+// Print
+document.getElementById("printBtn").onclick = () => {
+  window.print();
+};
+
+// Import Modal
+const importDialog = document.getElementById("importDialog");
+document.getElementById("importBtn").onclick = () => importDialog.showModal();
+document.getElementById("confirmImportBtn").onclick = () => {
+  const txt = document.getElementById("importText").value;
+  if (!txt.trim()) return;
+  
+  const names = txt.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
+  const newPlayers = names.map(n => ({
+    id: uid(),
+    name: n,
+    top: false, available: true, out: false
+  }));
+  
+  state.players = [...state.players, ...newPlayers];
+  saveState();
+  renderAll();
+  document.getElementById("importText").value = ""; // clear
+  setStatus(`Added ${newPlayers.length} players.`);
+};
+
 // Theme Toggle
-// [cite: 531-538] Robust Theme logic
 function initTheme() {
   const btn = document.getElementById("themeToggle");
   const saved = localStorage.getItem(THEME_KEY);
   const sys = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
   const theme = saved || sys;
-  
   document.documentElement.setAttribute("data-theme", theme);
   btn.textContent = theme === "light" ? "Dark Mode" : "Light Mode";
-
   btn.onclick = () => {
     const cur = document.documentElement.getAttribute("data-theme");
     const next = cur === "light" ? "dark" : "light";
