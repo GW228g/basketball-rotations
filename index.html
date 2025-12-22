@@ -77,9 +77,9 @@
         </div>
       </div>
       <div class="hint no-print">
-        Drag ☰ to reorder. Use <strong>Avail</strong> for arrivals. Mark <strong>Top</strong> for best players.
+        Touch & hold ☰ to drag. Use <strong>Avail</strong> for arrivals. Mark <strong>Top</strong> for best players.
       </div>
-      <div id="players"></div>
+      <div id="players" class="player-list"></div>
     </section>
 
     <section class="card">
@@ -103,7 +103,7 @@
   <dialog id="importDialog">
     <form method="dialog">
       <h3>Import Players</h3>
-      <p class="small">Paste names below (one per line). This will append to your current list.</p>
+      <p class="small">Paste names below (one per line).</p>
       <textarea id="importText" rows="6" placeholder="John&#10;Mike&#10;Sarah"></textarea>
       <div class="buttons">
         <button value="cancel" class="secondary">Cancel</button>
