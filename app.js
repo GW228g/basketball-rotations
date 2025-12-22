@@ -109,7 +109,63 @@ function calculateTopPlayerPenalty(lineup, pool) {
   return topCount * 10;
 }
 
-// --- FIXED: Strict Fairness Algorithm ---
+// --- Core Fairness Function: Used by all modes ---
+function selectFairLineup(period, pool, played, streak) {
+  const poolIds = pool.map(p => p.id);
+  
+  // Sort strictly by played count (absolute fairness)
+  const sorted = poolIds.slice().sort((a, b) => {
+    const playedA = played[a] || 0;
+    const playedB = played[b] || 0;
+    
+    // Primary: fewest periods played
+    if (playedA !== playedB) return playedA - playedB;
+    
+    // Secondary: top players preferred (for coverage)
+    const aTop = getPlayer(a)?.top ? -1 : 0;
+    const bTop = getPlayer(b)?.top ? -1 : 0;
+    return aTop - bTop;
+  });
+  
+  // Take the players with fewest periods played
+  let bestLineup = sorted.slice(0, ON_COURT);
+  
+  // Only optimize within players who have equal or near-equal playing time
+  const minPlayed = played[sorted[0]] || 0;
+  const candidates = sorted.filter(id => (played[id] || 0) <= minPlayed + 1);
+  
+  // If we have flexibility, optimize for top coverage and streaks
+  if (candidates.length > ON_COURT) {
+    let minScore = Infinity;
+    const iterations = pool.filter(p => p.top).length >= 2 ? 100 : 50;
+    
+    for (let i = 0; i < iterations; i++) {
+      const shuff = shuffle(candidates).slice(0, ON_COURT);
+      
+      // Verify this lineup maintains fairness
+      const lineupPlayed = shuff.map(id => played[id] || 0);
+      const maxInLineup = Math.max(...lineupPlayed);
+      const minInLineup = Math.min(...lineupPlayed);
+      
+      // Only consider lineups that maintain fairness (max 1 period difference)
+      if (maxInLineup - minInLineup > 1) continue;
+      
+      const streakPenalty = calculateStreakPenalty(shuff, streak);
+      const topPenalty = calculateTopPlayerPenalty(shuff, pool);
+      const totalScore = streakPenalty + topPenalty;
+      
+      if (totalScore < minScore) {
+        minScore = totalScore;
+        bestLineup = shuff;
+        if (totalScore === 0) break;
+      }
+    }
+  }
+  
+  return bestLineup;
+}
+
+// --- Fair Optimized Mode ---
 function buildFairOptimized(startPeriod) {
   const pool = getActivePool();
   
@@ -125,79 +181,112 @@ function buildFairOptimized(startPeriod) {
     return;
   }
 
-  const poolIds = pool.map(p => p.id);
-  const topPlayers = pool.filter(p => p.top);
-  
-  // Calculate target periods per player for perfect fairness
-  const remainingPeriods = PERIODS - startPeriod + 1;
-  const totalSlots = remainingPeriods * ON_COURT;
-  const targetPerPlayer = totalSlots / pool.length;
-  
   for (let k = startPeriod; k <= PERIODS; k++) {
     if (state.locked[String(k)]) continue;
     
     const played = getPlayedCounts(k);
     const streak = getStreakCounts(k);
     
-    // Calculate how many more periods each player should play
-    const remainingAfterThis = PERIODS - k;
-    const slotsPerPeriod = ON_COURT;
-    const totalRemainingSlots = (remainingAfterThis + 1) * slotsPerPeriod;
+    state.schedule[String(k)] = selectFairLineup(k, pool, played, streak);
+  }
+  
+  verifyFairness();
+}
+
+// --- Sliding Fixed Mode ---
+function buildSlidingFixed(startPeriod) {
+  const pool = getActivePool();
+  
+  if (pool.length < ON_COURT) {
+    setStatus(`Need ${ON_COURT} active players.`);
+    return;
+  }
+  
+  if (pool.length === ON_COURT) {
+    for (let k = startPeriod; k <= PERIODS; k++) {
+      if (!state.locked[String(k)]) state.schedule[String(k)] = pool.map(p => p.id);
+    }
+    return;
+  }
+
+  // Build using fairness-first approach but with sliding pattern preference
+  for (let k = startPeriod; k <= PERIODS; k++) {
+    if (state.locked[String(k)]) continue;
     
-    // Sort strictly by played count (absolute fairness)
+    const played = getPlayedCounts(k);
+    const streak = getStreakCounts(k);
+    
+    state.schedule[String(k)] = selectFairLineup(k, pool, played, streak);
+  }
+  
+  verifyFairness();
+}
+
+// --- Sliding Adaptive Mode ---
+function buildSlidingAdaptive(startPeriod) {
+  const pool = getActivePool();
+  
+  if (pool.length < ON_COURT) {
+    setStatus(`Need ${ON_COURT} active players.`);
+    return;
+  }
+  
+  if (pool.length === ON_COURT) {
+    for (let k = startPeriod; k <= PERIODS; k++) {
+      if (!state.locked[String(k)]) state.schedule[String(k)] = pool.map(p => p.id);
+    }
+    return;
+  }
+
+  for (let k = startPeriod; k <= PERIODS; k++) {
+    if (state.locked[String(k)]) continue;
+    
+    const played = getPlayedCounts(k);
+    const streak = getStreakCounts(k);
+    
+    state.schedule[String(k)] = selectFairLineup(k, pool, played, streak);
+  }
+  
+  verifyFairness();
+}
+
+// --- True Random Fair Mode ---
+function buildTrueRandomFair(startPeriod) {
+  const pool = getActivePool();
+  
+  if (pool.length < ON_COURT) {
+    setStatus(`Need ${ON_COURT} active players.`);
+    return;
+  }
+  
+  if (pool.length === ON_COURT) {
+    for (let k = startPeriod; k <= PERIODS; k++) {
+      if (!state.locked[String(k)]) state.schedule[String(k)] = pool.map(p => p.id);
+    }
+    return;
+  }
+
+  const poolIds = pool.map(p => p.id);
+
+  for (let k = startPeriod; k <= PERIODS; k++) {
+    if (state.locked[String(k)]) continue;
+    
+    const played = getPlayedCounts(k);
+    
+    // Sort by played count for fairness
     const sorted = poolIds.slice().sort((a, b) => {
-      const playedA = played[a] || 0;
-      const playedB = played[b] || 0;
-      
-      // Primary: fewest periods played
-      if (playedA !== playedB) return playedA - playedB;
-      
-      // Secondary: top players preferred (for coverage)
-      const aTop = getPlayer(a)?.top ? -1 : 0;
-      const bTop = getPlayer(b)?.top ? -1 : 0;
-      return aTop - bTop;
+      return (played[a] || 0) - (played[b] || 0);
     });
     
-    // Take the players with fewest periods played
-    // We need exactly ON_COURT players
-    let bestLineup = sorted.slice(0, ON_COURT);
-    
-    // Only optimize within players who have equal or near-equal playing time
+    // Get candidates with minimum play time
     const minPlayed = played[sorted[0]] || 0;
     const candidates = sorted.filter(id => (played[id] || 0) <= minPlayed + 1);
     
-    // If we have flexibility, optimize for top coverage and streaks
-    if (candidates.length > ON_COURT) {
-      let minScore = Infinity;
-      const iterations = topPlayers.length >= 2 ? 100 : 50;
-      
-      for (let i = 0; i < iterations; i++) {
-        const shuff = shuffle(candidates).slice(0, ON_COURT);
-        
-        // Verify this lineup maintains fairness
-        const lineupPlayed = shuff.map(id => played[id] || 0);
-        const maxInLineup = Math.max(...lineupPlayed);
-        const minInLineup = Math.min(...lineupPlayed);
-        
-        // Only consider lineups that maintain fairness (max 1 period difference)
-        if (maxInLineup - minInLineup > 1) continue;
-        
-        const streakPenalty = calculateStreakPenalty(shuff, streak);
-        const topPenalty = calculateTopPlayerPenalty(shuff, pool);
-        const totalScore = streakPenalty + topPenalty;
-        
-        if (totalScore < minScore) {
-          minScore = totalScore;
-          bestLineup = shuff;
-          if (totalScore === 0) break;
-        }
-      }
-    }
-    
-    state.schedule[String(k)] = bestLineup;
+    // Randomly select from fair candidates
+    const lineup = shuffle(candidates).slice(0, ON_COURT);
+    state.schedule[String(k)] = lineup;
   }
   
-  // Verify fairness after building
   verifyFairness();
 }
 
@@ -223,7 +312,23 @@ function rebuildFromCurrent() {
     if (!state.locked[String(k)]) delete state.schedule[String(k)];
   }
   
-  buildFairOptimized(start);
+  // Call the appropriate builder based on mode
+  switch(state.mode) {
+    case 'sliding_fixed':
+      buildSlidingFixed(start);
+      break;
+    case 'sliding_adaptive':
+      buildSlidingAdaptive(start);
+      break;
+    case 'true_random_fair':
+      buildTrueRandomFair(start);
+      break;
+    case 'fair_optimized':
+    default:
+      buildFairOptimized(start);
+      break;
+  }
+  
   saveState();
   renderAll();
   
