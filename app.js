@@ -126,7 +126,15 @@ function selectFairLineup(period, pool, played, streak) {
   
   // If we have MORE than ON_COURT players with min time, select from them
   if (mustPlay.length > ON_COURT) {
-    let bestLineup = mustPlay.slice(0, ON_COURT);
+    // PRIORITIZE TOP PLAYERS when selecting from equal-time players
+    const mustPlayWithPriority = mustPlay.slice().sort((a, b) => {
+      const aTop = getPlayer(a)?.top ? 1 : 0;
+      const bTop = getPlayer(b)?.top ? 1 : 0;
+      if (aTop !== bTop) return bTop - aTop; // Top players first
+      return Math.random() - 0.5; // Random otherwise
+    });
+    
+    let bestLineup = mustPlayWithPriority.slice(0, ON_COURT);
     let minScore = Infinity;
     const iterations = pool.filter(p => p.top).length >= 2 ? 100 : 50;
     
@@ -153,7 +161,15 @@ function selectFairLineup(period, pool, played, streak) {
   const needed = ON_COURT - mustPlay.length;
   
   // Get players with minPlayed + 1 (next tier)
-  const nextTier = poolIds.filter(id => (played[id] || 0) === minPlayed + 1);
+  let nextTier = poolIds.filter(id => (played[id] || 0) === minPlayed + 1);
+  
+  // PRIORITIZE TOP PLAYERS in next tier
+  nextTier = nextTier.sort((a, b) => {
+    const aTop = getPlayer(a)?.top ? 1 : 0;
+    const bTop = getPlayer(b)?.top ? 1 : 0;
+    if (aTop !== bTop) return bTop - aTop; // Top players first
+    return Math.random() - 0.5;
+  });
   
   if (nextTier.length <= needed) {
     // If next tier fits exactly or is smaller, add all of them
@@ -322,13 +338,35 @@ function verifyFairness() {
   const min = Math.min(...played);
   const max = Math.max(...played);
   
+  // Check basic fairness (max 1 period difference)
   if (max - min > 1) {
     console.error(`FAIRNESS VIOLATION: min=${min}, max=${max}`);
     console.error('Player counts:', pool.map(p => `${p.name}: ${counts[p.id] || 0}`));
     setStatus(`⚠️ Fairness issue detected. Please rebuild.`);
-  } else {
-    console.log('Fairness verified:', pool.map(p => `${p.name}: ${counts[p.id] || 0}`).join(', '));
+    return;
   }
+  
+  // Additional check: If there's unequal time, verify TOP players got priority
+  if (max > min) {
+    const topPlayers = pool.filter(p => p.top);
+    const topCounts = topPlayers.map(p => counts[p.id] || 0);
+    const nonTopPlayers = pool.filter(p => !p.top);
+    const nonTopCounts = nonTopPlayers.map(p => counts[p.id] || 0);
+    
+    if (topPlayers.length > 0 && nonTopPlayers.length > 0) {
+      const minTop = Math.min(...topCounts);
+      const maxNonTop = Math.max(...nonTopCounts);
+      
+      // Top players should never have fewer periods than non-top players
+      if (minTop < maxNonTop) {
+        console.warn('TOP PRIORITY ISSUE: Non-top players got more time than top players');
+        console.warn('Top players:', topPlayers.map(p => `${p.name}: ${counts[p.id]}`));
+        console.warn('Non-top players:', nonTopPlayers.map(p => `${p.name}: ${counts[p.id]}`));
+      }
+    }
+  }
+  
+  console.log('Fairness verified:', pool.map(p => `${p.name}: ${counts[p.id] || 0}`).join(', '));
 }
 
 function rebuildFromCurrent() {
