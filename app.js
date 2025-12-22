@@ -12,16 +12,10 @@ function defaultState() {
   return {
     mode: "fair_optimized",
     currentPeriod: 1,
-    topTwoCoverage: true, // Default to ON for better experience
+    topTwoCoverage: true,
     avoidStreaks: false,
     autoRebuild: false,
-    players: Array.from({ length: 8 }, (_, i) => ({
-      id: uid(),
-      name: `Player ${i + 1}`,
-      top: i < 2,
-      available: true,
-      out: false
-    })),
+    players: [], // Start with empty roster
     schedule: {},
     locked: {}
   };
@@ -84,26 +78,6 @@ function getStreakCounts(upToPeriod) {
   return streak;
 }
 
-// --- IMPROVED: Top Player Distribution Tracking ---
-function getTopPlayerDistribution(upToPeriod) {
-  const distribution = { periods: [], balance: 0 };
-  const topIds = state.players.filter(p => p.top && p.available && !p.out).map(p => p.id);
-  
-  if (topIds.length < 2) return distribution;
-  
-  for (let k = 1; k < upToPeriod; k++) {
-    const lineup = state.schedule[String(k)] || [];
-    const topCount = lineup.filter(id => topIds.includes(id)).length;
-    distribution.periods.push(topCount);
-  }
-  
-  // Calculate how balanced the distribution is (lower is better)
-  const avg = distribution.periods.reduce((a, b) => a + b, 0) / distribution.periods.length;
-  distribution.balance = distribution.periods.reduce((sum, count) => sum + Math.abs(count - 1), 0);
-  
-  return distribution;
-}
-
 // --- Core Generator Logic ---
 function calculateStreakPenalty(lineup, streakBefore) {
   if (!state.avoidStreaks) return 0;
@@ -116,7 +90,7 @@ function calculateStreakPenalty(lineup, streakBefore) {
   return penalty;
 }
 
-// --- IMPROVED: Smart Top-2 Distribution ---
+// --- Top Player Distribution ---
 function calculateTopPlayerPenalty(lineup, pool) {
   if (!state.topTwoCoverage) return 0;
   
@@ -124,21 +98,18 @@ function calculateTopPlayerPenalty(lineup, pool) {
   
   if (topPlayers.length === 0) return 0;
   if (topPlayers.length === 1) {
-    // If only one top player, just ensure they're on court
     return lineup.includes(topPlayers[0]) ? 0 : 100;
   }
   
-  // Count how many top players are in this lineup
   const topCount = lineup.filter(id => topPlayers.includes(id)).length;
   
-  // Ideal is exactly 1 top player
   if (topCount === 1) return 0;
-  if (topCount === 0) return 50; // Bad: no top players
-  if (topCount === 2) return 5;  // Minor penalty: both top players (wastes coverage)
-  return topCount * 10; // Worse: 3+ top players
+  if (topCount === 0) return 50;
+  if (topCount === 2) return 5;
+  return topCount * 10;
 }
 
-// --- IMPROVED: Fairness-First Algorithm with Smart Top Distribution ---
+// --- FIXED: Strict Fairness Algorithm ---
 function buildFairOptimized(startPeriod) {
   const pool = getActivePool();
   
@@ -157,56 +128,91 @@ function buildFairOptimized(startPeriod) {
   const poolIds = pool.map(p => p.id);
   const topPlayers = pool.filter(p => p.top);
   
+  // Calculate target periods per player for perfect fairness
+  const remainingPeriods = PERIODS - startPeriod + 1;
+  const totalSlots = remainingPeriods * ON_COURT;
+  const targetPerPlayer = totalSlots / pool.length;
+  
   for (let k = startPeriod; k <= PERIODS; k++) {
     if (state.locked[String(k)]) continue;
     
     const played = getPlayedCounts(k);
     const streak = getStreakCounts(k);
     
-    // Primary sort: by minutes played (FAIRNESS FIRST)
+    // Calculate how many more periods each player should play
+    const remainingAfterThis = PERIODS - k;
+    const slotsPerPeriod = ON_COURT;
+    const totalRemainingSlots = (remainingAfterThis + 1) * slotsPerPeriod;
+    
+    // Sort strictly by played count (absolute fairness)
     const sorted = poolIds.slice().sort((a, b) => {
-      const diff = (played[a] || 0) - (played[b] || 0);
-      if (diff !== 0) return diff;
-      // Tie-breaker: prefer top players for even distribution
-      const aTop = getPlayer(a)?.top ? 1 : 0;
-      const bTop = getPlayer(b)?.top ? 1 : 0;
-      return bTop - aTop;
+      const playedA = played[a] || 0;
+      const playedB = played[b] || 0;
+      
+      // Primary: fewest periods played
+      if (playedA !== playedB) return playedA - playedB;
+      
+      // Secondary: top players preferred (for coverage)
+      const aTop = getPlayer(a)?.top ? -1 : 0;
+      const bTop = getPlayer(b)?.top ? -1 : 0;
+      return aTop - bTop;
     });
     
-    // Expand candidate pool slightly for optimization
-    const candidateCount = Math.min(sorted.length, ON_COURT + 3);
-    const candidates = sorted.slice(0, candidateCount);
+    // Take the players with fewest periods played
+    // We need exactly ON_COURT players
+    let bestLineup = sorted.slice(0, ON_COURT);
     
-    let bestLineup = candidates.slice(0, ON_COURT);
-    let minScore = Infinity;
+    // Only optimize within players who have equal or near-equal playing time
+    const minPlayed = played[sorted[0]] || 0;
+    const candidates = sorted.filter(id => (played[id] || 0) <= minPlayed + 1);
     
-    // Try multiple lineup combinations to find best balance
-    const iterations = topPlayers.length >= 2 ? 100 : 50;
-    
-    for (let i = 0; i < iterations; i++) {
-      const shuff = shuffle(candidates).slice(0, ON_COURT);
+    // If we have flexibility, optimize for top coverage and streaks
+    if (candidates.length > ON_COURT) {
+      let minScore = Infinity;
+      const iterations = topPlayers.length >= 2 ? 100 : 50;
       
-      // Calculate composite score (fairness weighted highest)
-      const streakPenalty = calculateStreakPenalty(shuff, streak);
-      const topPenalty = calculateTopPlayerPenalty(shuff, pool);
-      
-      // Fairness check: ensure we're not deviating from fairness
-      const maxPlayed = Math.max(...shuff.map(id => played[id] || 0));
-      const minPlayed = Math.min(...shuff.map(id => played[id] || 0));
-      const fairnessPenalty = (maxPlayed - minPlayed) * 1000; // Heavy weight on fairness
-      
-      const totalScore = fairnessPenalty + streakPenalty + topPenalty;
-      
-      if (totalScore < minScore) {
-        minScore = totalScore;
-        bestLineup = shuff;
+      for (let i = 0; i < iterations; i++) {
+        const shuff = shuffle(candidates).slice(0, ON_COURT);
         
-        // If we found a perfect solution, stop searching
-        if (totalScore === 0) break;
+        // Verify this lineup maintains fairness
+        const lineupPlayed = shuff.map(id => played[id] || 0);
+        const maxInLineup = Math.max(...lineupPlayed);
+        const minInLineup = Math.min(...lineupPlayed);
+        
+        // Only consider lineups that maintain fairness (max 1 period difference)
+        if (maxInLineup - minInLineup > 1) continue;
+        
+        const streakPenalty = calculateStreakPenalty(shuff, streak);
+        const topPenalty = calculateTopPlayerPenalty(shuff, pool);
+        const totalScore = streakPenalty + topPenalty;
+        
+        if (totalScore < minScore) {
+          minScore = totalScore;
+          bestLineup = shuff;
+          if (totalScore === 0) break;
+        }
       }
     }
     
     state.schedule[String(k)] = bestLineup;
+  }
+  
+  // Verify fairness after building
+  verifyFairness();
+}
+
+function verifyFairness() {
+  const pool = getActivePool();
+  const counts = getPlayedCounts(PERIODS + 1);
+  const played = pool.map(p => counts[p.id] || 0);
+  
+  if (played.length === 0) return;
+  
+  const min = Math.min(...played);
+  const max = Math.max(...played);
+  
+  if (max - min > 1) {
+    console.warn(`Fairness issue detected: min=${min}, max=${max}`);
   }
 }
 
@@ -221,12 +227,11 @@ function rebuildFromCurrent() {
   saveState();
   renderAll();
   
-  // Enhanced status message
   const dist = analyzeTopDistribution();
   setStatus(`Rebuilt from Period ${start}. ${dist}`);
 }
 
-// --- IMPROVED: Analysis Helper ---
+// --- Analysis Helper ---
 function analyzeTopDistribution() {
   const topPlayers = state.players.filter(p => p.top && p.available && !p.out);
   if (topPlayers.length < 2 || !state.topTwoCoverage) return "";
@@ -306,11 +311,17 @@ function renderSettings() {
   bind("autoRebuild", "autoRebuild");
 }
 
+// --- IMPROVED: Player rendering with DELETE button ---
 function renderPlayers() {
   const div = document.getElementById("players");
   if (!div) return;
   
   div.innerHTML = "";
+  
+  if (state.players.length === 0) {
+    div.innerHTML = '<div class="hint">No players yet. Use "Import List" to add players.</div>';
+    return;
+  }
   
   state.players.forEach((p) => {
     const row = document.createElement("div");
@@ -356,6 +367,28 @@ function renderPlayers() {
     row.appendChild(makePill("Top", "top"));
     row.appendChild(makePill("Avail", "available"));
     row.appendChild(makePill("Out", "out"));
+    
+    // 4. DELETE BUTTON
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "delete-btn";
+    deleteBtn.innerHTML = "✕";
+    deleteBtn.title = "Delete player";
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (confirm(`Delete ${p.name}?`)) {
+        state.players = state.players.filter(player => player.id !== p.id);
+        
+        // Remove from all schedules
+        Object.keys(state.schedule).forEach(period => {
+          state.schedule[period] = state.schedule[period].filter(id => id !== p.id);
+        });
+        
+        saveState();
+        if (state.autoRebuild) rebuildFromCurrent();
+        else renderAll();
+      }
+    };
+    row.appendChild(deleteBtn);
     
     div.appendChild(row);
   });
@@ -477,13 +510,12 @@ function renderLineups() {
     head.innerHTML = `<span><strong>Period ${k}</strong></span> ${locked ? '<span class="lockedTag">Locked</span>' : ''}`;
     wrap.appendChild(head);
     
-    if (!lineup) {
+    if (!lineup || lineup.length === 0) {
       wrap.innerHTML += `<div class="muted">Not scheduled</div>`;
       div.appendChild(wrap);
       continue;
     }
     
-    // Highlight top players in lineup
     const onCourtNames = lineup.map(id => {
       const name = getName(id);
       const isTop = topPlayerIds.includes(id);
@@ -509,6 +541,11 @@ function renderLineups() {
 function renderMinutes() {
   const div = document.getElementById("minutes");
   if (!div) return;
+  
+  if (state.players.length === 0) {
+    div.innerHTML = '<div class="hint">No players to display.</div>';
+    return;
+  }
   
   const counts = getPlayedCounts(PERIODS + 1);
   const rows = state.players.slice().sort((a,b) => a.name.localeCompare(b.name));
