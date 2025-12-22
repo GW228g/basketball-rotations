@@ -4,10 +4,9 @@
   --border: #242424;
   --text: #f3f3f3;
   --muted: #bdbdbd;
-  --accent: #2d2d2d;
-  --danger: #a33a3a;
   --input: #0f0f0f;
   --btn: #1d1d1d;
+  --danger: #a33a3a;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
@@ -17,10 +16,9 @@
   --border: #d8d8d8;
   --text: #151515;
   --muted: #5a5a5a;
-  --accent: #e8e8e8;
-  --danger: #b94a4a;
   --input: #ffffff;
   --btn: #f1f1f1;
+  --danger: #b94a4a;
 }
 
 * { box-sizing: border-box; }
@@ -55,41 +53,51 @@ button.danger { background: color-mix(in srgb, var(--danger) 20%, var(--btn)); b
 .smallbtn { padding: 6px 12px; font-size: 12px; }
 .btn-group { display: flex; gap: 8px; }
 
-/* Player List & Dragging */
-.rowhead { display: flex; align-items: center; justify-content: space-between; }
-
+/* Player List Items */
 .player {
   display: grid;
-  grid-template-columns: 30px 1fr auto auto auto 24px; /* Added cols for Drag handle and Arrows */
-  gap: 6px;
+  grid-template-columns: 44px 1fr auto auto auto;
+  gap: 8px;
   align-items: center;
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   margin-bottom: 8px;
   background: color-mix(in srgb, var(--card) 50%, var(--bg));
-  transition: transform 0.2s ease, opacity 0.2s;
+  touch-action: none; /* Prevents scrolling while dragging specifically if targeting the handle */
 }
 
-.player.dragging { opacity: 0.5; border: 1px dashed var(--text); }
-
+/* Drag Handle */
 .drag-handle {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
   cursor: grab;
   color: var(--muted);
-  font-size: 20px;
-  text-align: center;
-  user-select: none;
+  font-size: 24px;
+  touch-action: none; /* Critical for mobile touch drag */
 }
 
-.move-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.move-btn {
-  background: none; border: none; padding: 2px; font-size: 10px; color: var(--muted); cursor: pointer; line-height: 1;
+/* Dragging State Classes */
+.player.dragging {
+  opacity: 0.3;
+  background: var(--input);
 }
 
+.dragging-ghost {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  background: var(--card);
+  border: 1px solid var(--text);
+  border-radius: 8px;
+  padding: 10px;
+  width: 300px; /* fixed width for ghost */
+  box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+  opacity: 0.9;
+  display: flex; align-items: center; gap: 10px;
+}
+
+/* Pills */
 .pill { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; background: var(--input); border: 1px solid var(--border); }
 .badge { font-size: 10px; text-transform: uppercase; color: var(--muted); }
 
@@ -103,8 +111,8 @@ button.danger { background: color-mix(in srgb, var(--danger) 20%, var(--btn)); b
 
 /* Table */
 .table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.table th { text-align: left; color: var(--muted); border-bottom: 1px solid var(--border); padding: 8px; }
-.table td { border-bottom: 1px solid var(--border); padding: 8px; }
+.table th, .table td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; }
+.table th { color: var(--muted); }
 .status { margin-top: 10px; color: var(--muted); font-size: 13px; min-height: 20px; }
 .footer { text-align: center; color: var(--muted); padding: 20px; font-size: 12px; }
 
@@ -126,6 +134,5 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
 }
 
 @media (max-width: 600px) {
-  .player { grid-template-columns: 30px 1fr auto auto auto 24px; }
-  /* Hide drag handle on very small screens if needed, but flex handles it */
+  .player { grid-template-columns: 44px 1fr auto auto auto; }
 }
