@@ -1,7 +1,7 @@
 // Constants
 const PERIODS = 8;
 const ON_COURT = 4;
-const LS_KEY = "rotation_planner_state_v6"; // Bump version
+const LS_KEY = "rotation_planner_state_v7";
 const THEME_KEY = "rotation_planner_theme";
 
 // Helper: unique ID
@@ -28,7 +28,6 @@ function defaultState() {
 }
 
 let state = loadState();
-let draggedItemIndex = null; // Track drag
 
 // --- Persistence ---
 function loadState() {
@@ -153,7 +152,6 @@ function buildFairOptimized(startPeriod) {
   }
 }
 
-// --- Application Flow ---
 function rebuildFromCurrent() {
   const start = Math.max(1, state.currentPeriod);
   for (let k = start; k <= PERIODS; k++) {
@@ -165,16 +163,8 @@ function rebuildFromCurrent() {
   setStatus(`Rebuilt starting from Period ${start}`);
 }
 
-// --- List Reordering Logic ---
-function movePlayer(fromIndex, toIndex) {
-  if (toIndex < 0 || toIndex >= state.players.length) return;
-  const item = state.players.splice(fromIndex, 1)[0];
-  state.players.splice(toIndex, 0, item);
-  saveState();
-  renderAll();
-}
-
 // --- UI Rendering ---
+
 function renderAll() {
   renderPeriodSelect();
   renderSettings();
@@ -222,26 +212,16 @@ function renderSettings() {
 function renderPlayers() {
   const div = document.getElementById("players");
   if (!div) return;
+  // NOTE: We do NOT clear innerHTML if a drag is happening to avoid killing events
+  // But for this simple app, we simply re-render fully on data change.
+  // The drag logic below manipulates the DOM directly, then saves, then re-renders.
+  
   div.innerHTML = "";
   
-  state.players.forEach((p, index) => {
+  state.players.forEach((p) => {
     const row = document.createElement("div");
     row.className = "player";
-    row.draggable = true; // HTML5 Drag
-    
-    // Drag Events
-    row.ondragstart = (e) => {
-      draggedItemIndex = index;
-      row.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-    };
-    row.ondragover = (e) => e.preventDefault();
-    row.ondragenter = (e) => e.preventDefault();
-    row.ondragend = () => row.classList.remove('dragging');
-    row.ondrop = (e) => {
-      e.preventDefault();
-      movePlayer(draggedItemIndex, index);
-    };
+    row.dataset.id = p.id; // Store ID for drag logic
 
     // 1. Drag Handle
     const handle = document.createElement("div");
@@ -278,28 +258,119 @@ function renderPlayers() {
     row.appendChild(makePill("Avail", "available"));
     row.appendChild(makePill("Out", "out"));
 
-    // 4. Move Arrows (Mobile Friendly)
-    const moveControls = document.createElement("div");
-    moveControls.className = "move-controls";
-    if (index > 0) {
-      const upBtn = document.createElement("button");
-      upBtn.className = "move-btn";
-      upBtn.textContent = "▲";
-      upBtn.onclick = () => movePlayer(index, index - 1);
-      moveControls.appendChild(upBtn);
-    }
-    if (index < state.players.length - 1) {
-      const downBtn = document.createElement("button");
-      downBtn.className = "move-btn";
-      downBtn.textContent = "▼";
-      downBtn.onclick = () => movePlayer(index, index + 1);
-      moveControls.appendChild(downBtn);
-    }
-    row.appendChild(moveControls);
-
     div.appendChild(row);
   });
+
+  // Re-attach Drag Logic
+  initDragAndDrop();
 }
+
+// --- Custom Touch/Mouse Drag Logic ---
+function initDragAndDrop() {
+  const list = document.getElementById("players");
+  let draggingEle = null;
+  let placeholder = null;
+  let isDragging = false;
+  let startY = 0;
+  let ghost = null;
+
+  const handles = list.querySelectorAll('.drag-handle');
+  
+  const onStart = (e) => {
+    // Determine Touch or Mouse
+    const touch = e.touches ? e.touches[0] : e;
+    const target = e.target.closest('.player');
+    if(!target) return;
+
+    e.preventDefault(); // Stop scrolling on mobile
+    isDragging = true;
+    draggingEle = target;
+    startY = touch.clientY;
+
+    // Create Ghost for Visuals
+    ghost = draggingEle.cloneNode(true);
+    ghost.classList.add('dragging-ghost');
+    // Strip inputs from ghost to clean up
+    const inputs = ghost.querySelectorAll('input');
+    inputs.forEach(i => i.value = i.value); // freeze value
+    document.body.appendChild(ghost);
+
+    // Initial Ghost Position
+    const rect = draggingEle.getBoundingClientRect();
+    ghost.style.top = `${rect.top}px`;
+    ghost.style.left = `${rect.left}px`;
+    ghost.style.width = `${rect.width}px`;
+
+    draggingEle.classList.add('dragging');
+  };
+
+  const onMove = (e) => {
+    if (!isDragging || !ghost) return;
+    const touch = e.touches ? e.touches[0] : e;
+    
+    // Move Ghost
+    ghost.style.top = `${touch.clientY - 20}px`;
+    ghost.style.left = `${touch.clientX}px`;
+
+    // Swap Detection
+    const swapTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!swapTarget) return;
+    const row = swapTarget.closest('.player');
+    
+    if (row && row !== draggingEle && list.contains(row)) {
+      // Logic: If moving down, insert after. If moving up, insert before.
+      const rect = row.getBoundingClientRect();
+      const next = (touch.clientY - rect.top) / rect.height > 0.5;
+      
+      // Simple DOM swap (insert puts it in new spot and removes from old)
+      if (next) {
+        list.insertBefore(draggingEle, row.nextSibling);
+      } else {
+        list.insertBefore(draggingEle, row);
+      }
+    }
+  };
+
+  const onEnd = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    
+    if (ghost) {
+      ghost.remove();
+      ghost = null;
+    }
+    if (draggingEle) {
+      draggingEle.classList.remove('dragging');
+      draggingEle = null;
+    }
+
+    // Save New Order based on DOM
+    const newOrder = [];
+    const domRows = list.querySelectorAll('.player');
+    domRows.forEach(row => {
+      const id = row.dataset.id;
+      const pData = state.players.find(p => p.id === id);
+      if (pData) newOrder.push(pData);
+    });
+    
+    state.players = newOrder;
+    saveState();
+  };
+
+  // Attach to Handles (Touch & Mouse)
+  handles.forEach(h => {
+    h.addEventListener('mousedown', onStart);
+    h.addEventListener('touchstart', onStart, { passive: false });
+  });
+
+  // Global Move/Up listeners
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('touchmove', onMove, { passive: false });
+  window.addEventListener('mouseup', onEnd);
+  window.addEventListener('touchend', onEnd);
+}
+
+// --- Rest of UI ---
 
 function renderLineups() {
   const div = document.getElementById("lineups");
@@ -358,7 +429,7 @@ function setStatus(msg) {
   setTimeout(() => { if(el) el.textContent = ""; }, 4000);
 }
 
-// --- Actions & Event Listeners ---
+// --- Event Wiring ---
 document.getElementById("rebuildBtn").onclick = rebuildFromCurrent;
 document.getElementById("lockCurrentBtn").onclick = () => {
   state.locked[String(state.currentPeriod)] = true;
@@ -390,8 +461,6 @@ document.getElementById("saveRosterBtn").onclick = () => {
   saveState();
   setStatus("Roster saved.");
 };
-
-// Share / Copy
 document.getElementById("shareBtn").onclick = () => {
   let text = "🏀 Rotation:\n";
   for(let k=1; k<=PERIODS; k++) {
@@ -402,34 +471,28 @@ document.getElementById("shareBtn").onclick = () => {
     .then(() => setStatus("Copied to clipboard!"))
     .catch(() => setStatus("Copy failed."));
 };
-
-// Print
 document.getElementById("printBtn").onclick = () => {
   window.print();
 };
 
-// Import Modal
 const importDialog = document.getElementById("importDialog");
 document.getElementById("importBtn").onclick = () => importDialog.showModal();
 document.getElementById("confirmImportBtn").onclick = () => {
   const txt = document.getElementById("importText").value;
   if (!txt.trim()) return;
-  
   const names = txt.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
   const newPlayers = names.map(n => ({
     id: uid(),
     name: n,
     top: false, available: true, out: false
   }));
-  
   state.players = [...state.players, ...newPlayers];
   saveState();
   renderAll();
-  document.getElementById("importText").value = ""; // clear
+  document.getElementById("importText").value = ""; 
   setStatus(`Added ${newPlayers.length} players.`);
 };
 
-// Theme Toggle
 function initTheme() {
   const btn = document.getElementById("themeToggle");
   const saved = localStorage.getItem(THEME_KEY);
@@ -446,6 +509,5 @@ function initTheme() {
   };
 }
 
-// Boot
 initTheme();
 renderAll();
