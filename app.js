@@ -113,42 +113,25 @@ function calculateTopPlayerPenalty(lineup, pool) {
 function selectFairLineup(period, pool, played, streak) {
   const poolIds = pool.map(p => p.id);
   
-  // Sort strictly by played count (absolute fairness)
-  const sorted = poolIds.slice().sort((a, b) => {
-    const playedA = played[a] || 0;
-    const playedB = played[b] || 0;
-    
-    // Primary: fewest periods played
-    if (playedA !== playedB) return playedA - playedB;
-    
-    // Secondary: top players preferred (for coverage)
-    const aTop = getPlayer(a)?.top ? -1 : 0;
-    const bTop = getPlayer(b)?.top ? -1 : 0;
-    return aTop - bTop;
-  });
+  // Find the minimum periods played
+  const minPlayed = Math.min(...poolIds.map(id => played[id] || 0));
   
-  // Take the players with fewest periods played
-  let bestLineup = sorted.slice(0, ON_COURT);
+  // Get all players with minimum periods played (MUST play these players first)
+  const mustPlay = poolIds.filter(id => (played[id] || 0) === minPlayed);
   
-  // Only optimize within players who have equal or near-equal playing time
-  const minPlayed = played[sorted[0]] || 0;
-  const candidates = sorted.filter(id => (played[id] || 0) <= minPlayed + 1);
+  // If we have exactly ON_COURT players with min time, they ALL play
+  if (mustPlay.length === ON_COURT) {
+    return mustPlay;
+  }
   
-  // If we have flexibility, optimize for top coverage and streaks
-  if (candidates.length > ON_COURT) {
+  // If we have MORE than ON_COURT players with min time, select from them
+  if (mustPlay.length > ON_COURT) {
+    let bestLineup = mustPlay.slice(0, ON_COURT);
     let minScore = Infinity;
     const iterations = pool.filter(p => p.top).length >= 2 ? 100 : 50;
     
     for (let i = 0; i < iterations; i++) {
-      const shuff = shuffle(candidates).slice(0, ON_COURT);
-      
-      // Verify this lineup maintains fairness
-      const lineupPlayed = shuff.map(id => played[id] || 0);
-      const maxInLineup = Math.max(...lineupPlayed);
-      const minInLineup = Math.min(...lineupPlayed);
-      
-      // Only consider lineups that maintain fairness (max 1 period difference)
-      if (maxInLineup - minInLineup > 1) continue;
+      const shuff = shuffle(mustPlay).slice(0, ON_COURT);
       
       const streakPenalty = calculateStreakPenalty(shuff, streak);
       const topPenalty = calculateTopPlayerPenalty(shuff, pool);
@@ -160,9 +143,45 @@ function selectFairLineup(period, pool, played, streak) {
         if (totalScore === 0) break;
       }
     }
+    
+    return bestLineup;
   }
   
-  return bestLineup;
+  // If we have FEWER than ON_COURT players with min time, 
+  // we MUST include all of them, then fill from next tier
+  const lineup = [...mustPlay];
+  const needed = ON_COURT - mustPlay.length;
+  
+  // Get players with minPlayed + 1 (next tier)
+  const nextTier = poolIds.filter(id => (played[id] || 0) === minPlayed + 1);
+  
+  if (nextTier.length <= needed) {
+    // If next tier fits exactly or is smaller, add all of them
+    return [...lineup, ...nextTier];
+  }
+  
+  // We have more players in next tier than we need
+  // Optimize selection from next tier only
+  let bestCombo = nextTier.slice(0, needed);
+  let minScore = Infinity;
+  const iterations = 50;
+  
+  for (let i = 0; i < iterations; i++) {
+    const shuffledNext = shuffle(nextTier).slice(0, needed);
+    const testLineup = [...mustPlay, ...shuffledNext];
+    
+    const streakPenalty = calculateStreakPenalty(testLineup, streak);
+    const topPenalty = calculateTopPlayerPenalty(testLineup, pool);
+    const totalScore = streakPenalty + topPenalty;
+    
+    if (totalScore < minScore) {
+      minScore = totalScore;
+      bestCombo = shuffledNext;
+      if (totalScore === 0) break;
+    }
+  }
+  
+  return [...mustPlay, ...bestCombo];
 }
 
 // --- Fair Optimized Mode ---
@@ -273,18 +292,21 @@ function buildTrueRandomFair(startPeriod) {
     
     const played = getPlayedCounts(k);
     
-    // Sort by played count for fairness
-    const sorted = poolIds.slice().sort((a, b) => {
-      return (played[a] || 0) - (played[b] || 0);
-    });
+    // Find minimum periods played
+    const minPlayed = Math.min(...poolIds.map(id => played[id] || 0));
     
-    // Get candidates with minimum play time
-    const minPlayed = played[sorted[0]] || 0;
-    const candidates = sorted.filter(id => (played[id] || 0) <= minPlayed + 1);
+    // Get all players with minimum periods
+    const mustPlay = poolIds.filter(id => (played[id] || 0) === minPlayed);
     
-    // Randomly select from fair candidates
-    const lineup = shuffle(candidates).slice(0, ON_COURT);
-    state.schedule[String(k)] = lineup;
+    if (mustPlay.length >= ON_COURT) {
+      // Randomly select from players with minimum time
+      state.schedule[String(k)] = shuffle(mustPlay).slice(0, ON_COURT);
+    } else {
+      // Must include all mustPlay, fill rest from next tier
+      const nextTier = poolIds.filter(id => (played[id] || 0) === minPlayed + 1);
+      const needed = ON_COURT - mustPlay.length;
+      state.schedule[String(k)] = [...mustPlay, ...shuffle(nextTier).slice(0, needed)];
+    }
   }
   
   verifyFairness();
@@ -301,7 +323,11 @@ function verifyFairness() {
   const max = Math.max(...played);
   
   if (max - min > 1) {
-    console.warn(`Fairness issue detected: min=${min}, max=${max}`);
+    console.error(`FAIRNESS VIOLATION: min=${min}, max=${max}`);
+    console.error('Player counts:', pool.map(p => `${p.name}: ${counts[p.id] || 0}`));
+    setStatus(`⚠️ Fairness issue detected. Please rebuild.`);
+  } else {
+    console.log('Fairness verified:', pool.map(p => `${p.name}: ${counts[p.id] || 0}`).join(', '));
   }
 }
 
