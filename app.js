@@ -109,95 +109,92 @@ function calculateTopPlayerPenalty(lineup, pool) {
   return topCount * 10;
 }
 
-// --- Core Fairness Function: Used by all modes ---
+// --- IMPROVED: Core Fairness Function with STRICT Top Player Priority ---
 function selectFairLineup(period, pool, played, streak) {
   const poolIds = pool.map(p => p.id);
+  const topPlayerIds = pool.filter(p => p.top).map(p => p.id);
   
-  // Find the minimum periods played
-  const minPlayed = Math.min(...poolIds.map(id => played[id] || 0));
+  // Calculate what the min/max should be for perfect fairness
+  const totalPeriods = PERIODS;
+  const totalSlots = totalPeriods * ON_COURT;
+  const targetPerPlayer = totalSlots / pool.length;
+  const minTarget = Math.floor(targetPerPlayer);
+  const maxTarget = Math.ceil(targetPerPlayer);
   
-  // Get all players with minimum periods played (MUST play these players first)
-  const mustPlay = poolIds.filter(id => (played[id] || 0) === minPlayed);
-  
-  // If we have exactly ON_COURT players with min time, they ALL play
-  if (mustPlay.length === ON_COURT) {
-    return mustPlay;
-  }
-  
-  // If we have MORE than ON_COURT players with min time, select from them
-  if (mustPlay.length > ON_COURT) {
-    // PRIORITIZE TOP PLAYERS when selecting from equal-time players
-    const mustPlayWithPriority = mustPlay.slice().sort((a, b) => {
-      const aTop = getPlayer(a)?.top ? 1 : 0;
-      const bTop = getPlayer(b)?.top ? 1 : 0;
-      if (aTop !== bTop) return bTop - aTop; // Top players first
-      return Math.random() - 0.5; // Random otherwise
-    });
-    
-    let bestLineup = mustPlayWithPriority.slice(0, ON_COURT);
-    let minScore = Infinity;
-    const iterations = pool.filter(p => p.top).length >= 2 ? 100 : 50;
-    
-    for (let i = 0; i < iterations; i++) {
-      const shuff = shuffle(mustPlay).slice(0, ON_COURT);
-      
-      const streakPenalty = calculateStreakPenalty(shuff, streak);
-      const topPenalty = calculateTopPlayerPenalty(shuff, pool);
-      const totalScore = streakPenalty + topPenalty;
-      
-      if (totalScore < minScore) {
-        minScore = totalScore;
-        bestLineup = shuff;
-        if (totalScore === 0) break;
-      }
-    }
-    
-    return bestLineup;
-  }
-  
-  // If we have FEWER than ON_COURT players with min time, 
-  // we MUST include all of them, then fill from next tier
-  const lineup = [...mustPlay];
-  const needed = ON_COURT - mustPlay.length;
-  
-  // Get players with minPlayed + 1 (next tier)
-  let nextTier = poolIds.filter(id => (played[id] || 0) === minPlayed + 1);
-  
-  // PRIORITIZE TOP PLAYERS in next tier
-  nextTier = nextTier.sort((a, b) => {
-    const aTop = getPlayer(a)?.top ? 1 : 0;
-    const bTop = getPlayer(b)?.top ? 1 : 0;
-    if (aTop !== bTop) return bTop - aTop; // Top players first
-    return Math.random() - 0.5;
+  // Separate players by their current count and top status
+  const playersByCount = {};
+  poolIds.forEach(id => {
+    const count = played[id] || 0;
+    if (!playersByCount[count]) playersByCount[count] = [];
+    playersByCount[count].push(id);
   });
   
-  if (nextTier.length <= needed) {
-    // If next tier fits exactly or is smaller, add all of them
-    return [...lineup, ...nextTier];
+  // Find the minimum count
+  const minPlayed = Math.min(...poolIds.map(id => played[id] || 0));
+  
+  // Build lineup with STRICT top player priority
+  const lineup = [];
+  
+  // Step 1: Add all players at minimum count, prioritizing TOP players
+  const atMin = playersByCount[minPlayed] || [];
+  const topAtMin = atMin.filter(id => topPlayerIds.includes(id));
+  const nonTopAtMin = atMin.filter(id => !topPlayerIds.includes(id));
+  
+  // Add TOP players first
+  lineup.push(...topAtMin);
+  
+  // If we still need more players and have non-top at minimum
+  if (lineup.length < ON_COURT) {
+    const needed = ON_COURT - lineup.length;
+    lineup.push(...shuffle(nonTopAtMin).slice(0, needed));
   }
   
-  // We have more players in next tier than we need
-  // Optimize selection from next tier only
-  let bestCombo = nextTier.slice(0, needed);
-  let minScore = Infinity;
-  const iterations = 50;
-  
-  for (let i = 0; i < iterations; i++) {
-    const shuffledNext = shuffle(nextTier).slice(0, needed);
-    const testLineup = [...mustPlay, ...shuffledNext];
+  // Step 2: If we still need players, go to next tier (minPlayed + 1)
+  if (lineup.length < ON_COURT) {
+    const atNext = playersByCount[minPlayed + 1] || [];
+    const topAtNext = atNext.filter(id => topPlayerIds.includes(id));
+    const nonTopAtNext = atNext.filter(id => !topPlayerIds.includes(id));
     
-    const streakPenalty = calculateStreakPenalty(testLineup, streak);
-    const topPenalty = calculateTopPlayerPenalty(testLineup, pool);
-    const totalScore = streakPenalty + topPenalty;
+    // Prioritize TOP players again
+    const needed = ON_COURT - lineup.length;
+    lineup.push(...topAtNext.slice(0, needed));
     
-    if (totalScore < minScore) {
-      minScore = totalScore;
-      bestCombo = shuffledNext;
-      if (totalScore === 0) break;
+    // Fill remaining with non-top
+    if (lineup.length < ON_COURT) {
+      const stillNeeded = ON_COURT - lineup.length;
+      lineup.push(...shuffle(nonTopAtNext).slice(0, stillNeeded));
     }
   }
   
-  return [...mustPlay, ...bestCombo];
+  // Step 3: Optimize within the selected lineup for streaks if possible
+  if (lineup.length === ON_COURT) {
+    // Check if we can swap players at the same count level to reduce streak penalties
+    const lineupPlayed = lineup.map(id => played[id] || 0);
+    const uniqueCounts = [...new Set(lineupPlayed)];
+    
+    if (uniqueCounts.length === 1) {
+      // All players in lineup have same count - we can optimize freely
+      let bestLineup = lineup;
+      let minScore = calculateStreakPenalty(lineup, streak) + calculateTopPlayerPenalty(lineup, pool);
+      
+      const candidates = poolIds.filter(id => (played[id] || 0) === uniqueCounts[0]);
+      
+      for (let i = 0; i < 50; i++) {
+        const testLineup = shuffle(candidates).slice(0, ON_COURT);
+        const score = calculateStreakPenalty(testLineup, streak) + calculateTopPlayerPenalty(testLineup, pool);
+        
+        if (score < minScore) {
+          minScore = score;
+          bestLineup = testLineup;
+          if (score === 0) break;
+        }
+      }
+      
+      return bestLineup;
+    }
+  }
+  
+  return lineup;
 }
 
 // --- Fair Optimized Mode ---
@@ -346,27 +343,29 @@ function verifyFairness() {
     return;
   }
   
-  // Additional check: If there's unequal time, verify TOP players got priority
+  // STRICT CHECK: If there's unequal time, ALL TOP players must have MAX periods
   if (max > min) {
     const topPlayers = pool.filter(p => p.top);
-    const topCounts = topPlayers.map(p => counts[p.id] || 0);
-    const nonTopPlayers = pool.filter(p => !p.top);
-    const nonTopCounts = nonTopPlayers.map(p => counts[p.id] || 0);
     
-    if (topPlayers.length > 0 && nonTopPlayers.length > 0) {
-      const minTop = Math.min(...topCounts);
-      const maxNonTop = Math.max(...nonTopCounts);
+    if (topPlayers.length > 0) {
+      const topCounts = topPlayers.map(p => counts[p.id] || 0);
+      const minTopCount = Math.min(...topCounts);
       
-      // Top players should never have fewer periods than non-top players
-      if (minTop < maxNonTop) {
-        console.warn('TOP PRIORITY ISSUE: Non-top players got more time than top players');
-        console.warn('Top players:', topPlayers.map(p => `${p.name}: ${counts[p.id]}`));
-        console.warn('Non-top players:', nonTopPlayers.map(p => `${p.name}: ${counts[p.id]}`));
+      // Every TOP player should have the maximum periods
+      if (minTopCount < max) {
+        console.error(`TOP PRIORITY VIOLATION: Some top players don't have max periods`);
+        console.error('Top players:', topPlayers.map(p => `${p.name}: ${counts[p.id]}`));
+        console.error('All players:', pool.map(p => `${p.name}: ${counts[p.id]}`));
+        setStatus(`⚠️ Top players should have max time. Rebuilding...`);
+        
+        // Auto-rebuild to fix this
+        setTimeout(() => rebuildFromCurrent(), 100);
+        return;
       }
     }
   }
   
-  console.log('Fairness verified:', pool.map(p => `${p.name}: ${counts[p.id] || 0}`).join(', '));
+  console.log('✓ Fairness verified:', pool.map(p => `${p.name}: ${counts[p.id] || 0}`).join(', '));
 }
 
 function rebuildFromCurrent() {
