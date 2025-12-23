@@ -114,72 +114,42 @@ function selectFairLineup(period, pool, played, streak) {
   const poolIds = pool.map(p => p.id);
   const topPlayerIds = pool.filter(p => p.top).map(p => p.id);
   
-  // Calculate what the min/max should be for perfect fairness
-  const totalPeriods = PERIODS;
-  const totalSlots = totalPeriods * ON_COURT;
-  const targetPerPlayer = totalSlots / pool.length;
-  const minTarget = Math.floor(targetPerPlayer);
-  const maxTarget = Math.ceil(targetPerPlayer);
-  
-  // Separate players by their current count and top status
-  const playersByCount = {};
-  poolIds.forEach(id => {
-    const count = played[id] || 0;
-    if (!playersByCount[count]) playersByCount[count] = [];
-    playersByCount[count].push(id);
+  // Sort all players by: 1) periods played (ascending), 2) top status (descending)
+  const sorted = poolIds.slice().sort((a, b) => {
+    const playedA = played[a] || 0;
+    const playedB = played[b] || 0;
+    
+    // Primary: fewest periods played
+    if (playedA !== playedB) return playedA - playedB;
+    
+    // Secondary: TOP players first
+    const aTop = topPlayerIds.includes(a) ? 1 : 0;
+    const bTop = topPlayerIds.includes(b) ? 1 : 0;
+    if (aTop !== bTop) return bTop - aTop;
+    
+    // Tertiary: random
+    return Math.random() - 0.5;
   });
   
-  // Find the minimum count
-  const minPlayed = Math.min(...poolIds.map(id => played[id] || 0));
+  // Take the first ON_COURT players (they have min periods and TOP priority)
+  let lineup = sorted.slice(0, ON_COURT);
   
-  // Build lineup with STRICT top player priority
-  const lineup = [];
+  // Verify the lineup maintains fairness (everyone in lineup has same or +1 periods)
+  const lineupPlayed = lineup.map(id => played[id] || 0);
+  const minInLineup = Math.min(...lineupPlayed);
+  const maxInLineup = Math.max(...lineupPlayed);
   
-  // Step 1: Add all players at minimum count, prioritizing TOP players
-  const atMin = playersByCount[minPlayed] || [];
-  const topAtMin = atMin.filter(id => topPlayerIds.includes(id));
-  const nonTopAtMin = atMin.filter(id => !topPlayerIds.includes(id));
-  
-  // Add TOP players first
-  lineup.push(...topAtMin);
-  
-  // If we still need more players and have non-top at minimum
-  if (lineup.length < ON_COURT) {
-    const needed = ON_COURT - lineup.length;
-    lineup.push(...shuffle(nonTopAtMin).slice(0, needed));
-  }
-  
-  // Step 2: If we still need players, go to next tier (minPlayed + 1)
-  if (lineup.length < ON_COURT) {
-    const atNext = playersByCount[minPlayed + 1] || [];
-    const topAtNext = atNext.filter(id => topPlayerIds.includes(id));
-    const nonTopAtNext = atNext.filter(id => !topPlayerIds.includes(id));
+  // If lineup has a mix, we can optimize within those at the minimum
+  if (maxInLineup === minInLineup) {
+    // Everyone has same count - we can shuffle for streak optimization
+    const candidates = sorted.filter(id => (played[id] || 0) === minInLineup);
     
-    // Prioritize TOP players again
-    const needed = ON_COURT - lineup.length;
-    lineup.push(...topAtNext.slice(0, needed));
-    
-    // Fill remaining with non-top
-    if (lineup.length < ON_COURT) {
-      const stillNeeded = ON_COURT - lineup.length;
-      lineup.push(...shuffle(nonTopAtNext).slice(0, stillNeeded));
-    }
-  }
-  
-  // Step 3: Optimize within the selected lineup for streaks if possible
-  if (lineup.length === ON_COURT) {
-    // Check if we can swap players at the same count level to reduce streak penalties
-    const lineupPlayed = lineup.map(id => played[id] || 0);
-    const uniqueCounts = [...new Set(lineupPlayed)];
-    
-    if (uniqueCounts.length === 1) {
-      // All players in lineup have same count - we can optimize freely
+    if (candidates.length > ON_COURT) {
       let bestLineup = lineup;
       let minScore = calculateStreakPenalty(lineup, streak) + calculateTopPlayerPenalty(lineup, pool);
       
-      const candidates = poolIds.filter(id => (played[id] || 0) === uniqueCounts[0]);
-      
-      for (let i = 0; i < 50; i++) {
+      // Try a few random combinations to optimize streaks
+      for (let i = 0; i < 30; i++) {
         const testLineup = shuffle(candidates).slice(0, ON_COURT);
         const score = calculateStreakPenalty(testLineup, streak) + calculateTopPlayerPenalty(testLineup, pool);
         
@@ -190,7 +160,7 @@ function selectFairLineup(period, pool, played, streak) {
         }
       }
       
-      return bestLineup;
+      lineup = bestLineup;
     }
   }
   
@@ -356,10 +326,7 @@ function verifyFairness() {
         console.error(`TOP PRIORITY VIOLATION: Some top players don't have max periods`);
         console.error('Top players:', topPlayers.map(p => `${p.name}: ${counts[p.id]}`));
         console.error('All players:', pool.map(p => `${p.name}: ${counts[p.id]}`));
-        setStatus(`⚠️ Top players should have max time. Rebuilding...`);
-        
-        // Auto-rebuild to fix this
-        setTimeout(() => rebuildFromCurrent(), 100);
+        setStatus(`⚠️ Top players should have max time. Try rebuilding again.`);
         return;
       }
     }
