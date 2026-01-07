@@ -195,7 +195,7 @@ function buildFairOptimized(startPeriod) {
   verifyFairness();
 }
 
-// --- Sliding Fixed Mode ---
+// --- Sliding Fixed Mode: Uses predetermined rotation patterns ---
 function buildSlidingFixed(startPeriod) {
   const pool = getActivePool();
   
@@ -211,20 +211,80 @@ function buildSlidingFixed(startPeriod) {
     return;
   }
 
-  // Build using fairness-first approach but with sliding pattern preference
+  // Get player IDs in roster order (this is why drag-to-reorder matters)
+  const poolIds = pool.map(p => p.id);
+  const numPlayers = poolIds.length;
+  
+  // Define rotation patterns based on number of players
+  // These patterns match the charts: [positions on court for each period]
+  const rotationPatterns = {
+    8: [ // 8 players: each player plays 4 out of 8 periods
+      [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
+      [4, 5, 6, 7],  // Period 2: Players 5,6,7,8
+      [1, 2, 3, 4],  // Period 3: Players 2,3,4,5
+      [5, 6, 7, 0],  // Period 4: Players 6,7,8,1
+      [2, 3, 4, 5],  // Period 5: Players 3,4,5,6
+      [6, 7, 0, 1],  // Period 6: Players 7,8,1,2
+      [2, 3, 4, 5],  // Period 7: Players 3,4,5,6
+      [6, 7, 0, 1]   // Period 8: Players 7,8,1,2
+    ],
+    7: [ // 7 players: each plays 4-5 periods
+      [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
+      [4, 5, 6, 0],  // Period 2: Players 5,6,7,1
+      [1, 2, 3, 4],  // Period 3: Players 2,3,4,5
+      [5, 6, 0, 1],  // Period 4: Players 6,7,1,2
+      [2, 3, 4, 5],  // Period 5: Players 3,4,5,6
+      [6, 0, 1, 2],  // Period 6: Players 7,1,2,3
+      [3, 4, 5, 6],  // Period 7: Players 4,5,6,7
+      [0, 1, 2, 3]   // Period 8: Players 1,2,3,4
+    ],
+    6: [ // 6 players: each plays 5-6 periods
+      [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
+      [4, 5, 0, 1],  // Period 2: Players 5,6,1,2
+      [2, 3, 4, 5],  // Period 3: Players 3,4,5,6
+      [0, 1, 2, 3],  // Period 4: Players 1,2,3,4
+      [4, 5, 0, 1],  // Period 5: Players 5,6,1,2
+      [2, 3, 4, 5],  // Period 6: Players 3,4,5,6
+      [0, 1, 2, 3],  // Period 7: Players 1,2,3,4
+      [4, 5, 0, 1]   // Period 8: Players 5,6,1,2
+    ],
+    5: [ // 5 players: each plays 6-7 periods
+      [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
+      [4, 0, 1, 2],  // Period 2: Players 5,1,2,3
+      [3, 4, 0, 1],  // Period 3: Players 4,5,1,2
+      [2, 3, 4, 0],  // Period 4: Players 3,4,5,1
+      [1, 2, 3, 4],  // Period 5: Players 2,3,4,5
+      [0, 1, 2, 3],  // Period 6: Players 1,2,3,4
+      [4, 0, 1, 2],  // Period 7: Players 5,1,2,3
+      [3, 4, 0, 1]   // Period 8: Players 4,5,1,2
+    ]
+  };
+  
+  // Get the appropriate pattern or generate a fair one if not defined
+  let pattern = rotationPatterns[numPlayers];
+  
+  if (!pattern) {
+    // For non-standard player counts, fall back to fair algorithm
+    buildFairOptimized(startPeriod);
+    return;
+  }
+  
+  // Apply the pattern
   for (let k = startPeriod; k <= PERIODS; k++) {
     if (state.locked[String(k)]) continue;
     
-    const played = getPlayedCounts(k);
-    const streak = getStreakCounts(k);
+    const periodIndex = k - 1; // 0-based index
+    const positions = pattern[periodIndex];
     
-    state.schedule[String(k)] = selectFairLineup(k, pool, played, streak);
+    // Map positions to actual player IDs
+    const lineup = positions.map(pos => poolIds[pos]);
+    state.schedule[String(k)] = lineup;
   }
   
   verifyFairness();
 }
 
-// --- Sliding Adaptive Mode ---
+// --- Sliding Adaptive Mode: Sliding pattern with TOP player priority ---
 function buildSlidingAdaptive(startPeriod) {
   const pool = getActivePool();
   
@@ -240,13 +300,138 @@ function buildSlidingAdaptive(startPeriod) {
     return;
   }
 
+  const numPlayers = pool.length;
+  
+  // First, calculate how many periods each player SHOULD get for fairness
+  const totalSlots = PERIODS * ON_COURT;
+  const avgPeriods = totalSlots / numPlayers;
+  const minPeriods = Math.floor(avgPeriods);
+  const maxPeriods = Math.ceil(avgPeriods);
+  
+  // Calculate how many players get max vs min
+  const playersWithMax = Math.round((avgPeriods - minPeriods) * numPlayers);
+  const playersWithMin = numPlayers - playersWithMax;
+  
+  // Sort pool: TOP players first, then others
+  const topPlayers = pool.filter(p => p.top);
+  const nonTopPlayers = pool.filter(p => !p.top);
+  
+  // Assign target periods: TOP players get maxPeriods, fill remaining with non-top
+  const targetPeriods = {};
+  let maxSlotsLeft = playersWithMax;
+  
+  // Give TOP players the max periods first
+  topPlayers.forEach(p => {
+    if (maxSlotsLeft > 0) {
+      targetPeriods[p.id] = maxPeriods;
+      maxSlotsLeft--;
+    } else {
+      targetPeriods[p.id] = minPeriods;
+    }
+  });
+  
+  // Give remaining players the remaining slots
+  nonTopPlayers.forEach(p => {
+    if (maxSlotsLeft > 0) {
+      targetPeriods[p.id] = maxPeriods;
+      maxSlotsLeft--;
+    } else {
+      targetPeriods[p.id] = minPeriods;
+    }
+  });
+  
+  // Define rotation patterns (same as sliding fixed)
+  const rotationPatterns = {
+    8: [
+      [0, 1, 2, 3],
+      [4, 5, 6, 7],
+      [1, 2, 3, 4],
+      [5, 6, 7, 0],
+      [2, 3, 4, 5],
+      [6, 7, 0, 1],
+      [2, 3, 4, 5],
+      [6, 7, 0, 1]
+    ],
+    7: [
+      [0, 1, 2, 3],
+      [4, 5, 6, 0],
+      [1, 2, 3, 4],
+      [5, 6, 0, 1],
+      [2, 3, 4, 5],
+      [6, 0, 1, 2],
+      [3, 4, 5, 6],
+      [0, 1, 2, 3]
+    ],
+    6: [
+      [0, 1, 2, 3],
+      [4, 5, 0, 1],
+      [2, 3, 4, 5],
+      [0, 1, 2, 3],
+      [4, 5, 0, 1],
+      [2, 3, 4, 5],
+      [0, 1, 2, 3],
+      [4, 5, 0, 1]
+    ],
+    5: [
+      [0, 1, 2, 3],
+      [4, 0, 1, 2],
+      [3, 4, 0, 1],
+      [2, 3, 4, 0],
+      [1, 2, 3, 4],
+      [0, 1, 2, 3],
+      [4, 0, 1, 2],
+      [3, 4, 0, 1]
+    ]
+  };
+  
+  let pattern = rotationPatterns[numPlayers];
+  
+  if (!pattern) {
+    // For non-standard player counts, fall back to fair algorithm with TOP priority
+    buildFairOptimized(startPeriod);
+    return;
+  }
+  
+  // Reorder the pool to put TOP players in positions that get more playing time
+  // We need to figure out which positions in the pattern play the most
+  const positionCounts = Array(numPlayers).fill(0);
+  pattern.forEach(periodPositions => {
+    periodPositions.forEach(pos => {
+      positionCounts[pos]++;
+    });
+  });
+  
+  // Create array of [position, count] and sort by count (descending)
+  const positionsByPlayTime = positionCounts
+    .map((count, pos) => ({ pos, count }))
+    .sort((a, b) => b.count - a.count);
+  
+  // Create optimized roster order: assign TOP players to high-play positions
+  const optimizedRoster = Array(numPlayers).fill(null);
+  
+  let topIndex = 0;
+  let nonTopIndex = 0;
+  
+  positionsByPlayTime.forEach(({ pos, count }) => {
+    if (topIndex < topPlayers.length) {
+      optimizedRoster[pos] = topPlayers[topIndex++];
+    } else {
+      optimizedRoster[pos] = nonTopPlayers[nonTopIndex++];
+    }
+  });
+  
+  // Get optimized player IDs
+  const optimizedIds = optimizedRoster.map(p => p.id);
+  
+  // Apply the pattern with optimized roster
   for (let k = startPeriod; k <= PERIODS; k++) {
     if (state.locked[String(k)]) continue;
     
-    const played = getPlayedCounts(k);
-    const streak = getStreakCounts(k);
+    const periodIndex = k - 1;
+    const positions = pattern[periodIndex];
     
-    state.schedule[String(k)] = selectFairLineup(k, pool, played, streak);
+    const lineup = positions.map(pos => optimizedIds[pos]);
+    state.schedule[String(k)] = lineup;
   }
   
   verifyFairness();
@@ -446,7 +631,7 @@ function renderSettings() {
   bind("autoRebuild", "autoRebuild");
 }
 
-// --- IMPROVED: Player rendering with DELETE button ---
+// --- IMPROVED: Player rendering with DELETE button and TOP limit ---
 function renderPlayers() {
   const div = document.getElementById("players");
   if (!div) return;
@@ -490,6 +675,16 @@ function renderPlayers() {
       cb.type = "checkbox";
       cb.checked = !!p[key];
       cb.onclick = () => {
+        // Special handling for TOP checkbox - limit to 2
+        if (key === "top" && cb.checked) {
+          const currentTopCount = state.players.filter(pl => pl.top).length;
+          if (currentTopCount >= 2) {
+            cb.checked = false;
+            setStatus("⚠️ Maximum 2 top players allowed");
+            return;
+          }
+        }
+        
         p[key] = cb.checked;
         saveState();
         if (state.autoRebuild) rebuildFromCurrent();
