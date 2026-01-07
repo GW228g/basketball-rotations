@@ -195,7 +195,7 @@ function buildFairOptimized(startPeriod) {
   verifyFairness();
 }
 
-// --- Sliding Fixed Mode: Uses predetermined rotation patterns ---
+// --- Sliding Fixed Mode: Uses predetermined rotation patterns (NO TOP priority) ---
 function buildSlidingFixed(startPeriod) {
   const pool = getActivePool();
   
@@ -211,12 +211,11 @@ function buildSlidingFixed(startPeriod) {
     return;
   }
 
-  // Get player IDs in roster order (this is why drag-to-reorder matters)
+  // Get player IDs in roster order exactly as arranged (order matters!)
   const poolIds = pool.map(p => p.id);
   const numPlayers = poolIds.length;
   
   // Define rotation patterns based on number of players
-  // These patterns match the charts: [positions on court for each period]
   const rotationPatterns = {
     8: [ // 8 players: each player plays 4 out of 8 periods
       [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
@@ -260,16 +259,21 @@ function buildSlidingFixed(startPeriod) {
     ]
   };
   
-  // Get the appropriate pattern or generate a fair one if not defined
   let pattern = rotationPatterns[numPlayers];
   
   if (!pattern) {
-    // For non-standard player counts, fall back to fair algorithm
-    buildFairOptimized(startPeriod);
+    // For non-standard player counts, use fair algorithm without TOP priority
+    for (let k = startPeriod; k <= PERIODS; k++) {
+      if (state.locked[String(k)]) continue;
+      const played = getPlayedCounts(k);
+      const minPlayed = Math.min(...poolIds.map(id => played[id] || 0));
+      const candidates = poolIds.filter(id => (played[id] || 0) === minPlayed);
+      state.schedule[String(k)] = shuffle(candidates).slice(0, ON_COURT);
+    }
     return;
   }
   
-  // Apply the pattern
+  // Apply the pattern using roster order exactly as is
   for (let k = startPeriod; k <= PERIODS; k++) {
     if (state.locked[String(k)]) continue;
     
@@ -280,8 +284,6 @@ function buildSlidingFixed(startPeriod) {
     const lineup = positions.map(pos => poolIds[pos]);
     state.schedule[String(k)] = lineup;
   }
-  
-  verifyFairness();
 }
 
 // --- Sliding Adaptive Mode: Sliding pattern with TOP player priority ---
@@ -437,7 +439,7 @@ function buildSlidingAdaptive(startPeriod) {
   verifyFairness();
 }
 
-// --- True Random Fair Mode ---
+// --- True Random Fair Mode: Random mix each period while maintaining fairness ---
 function buildTrueRandomFair(startPeriod) {
   const pool = getActivePool();
   
@@ -455,6 +457,7 @@ function buildTrueRandomFair(startPeriod) {
 
   const poolIds = pool.map(p => p.id);
 
+  // Build each period with maximum randomness while maintaining fairness
   for (let k = startPeriod; k <= PERIODS; k++) {
     if (state.locked[String(k)]) continue;
     
@@ -470,7 +473,7 @@ function buildTrueRandomFair(startPeriod) {
       // Randomly select from players with minimum time
       state.schedule[String(k)] = shuffle(mustPlay).slice(0, ON_COURT);
     } else {
-      // Must include all mustPlay, fill rest from next tier
+      // Must include all mustPlay, fill rest from next tier randomly
       const nextTier = poolIds.filter(id => (played[id] || 0) === minPlayed + 1);
       const needed = ON_COURT - mustPlay.length;
       state.schedule[String(k)] = [...mustPlay, ...shuffle(nextTier).slice(0, needed)];
