@@ -975,11 +975,28 @@ document.getElementById("saveRosterBtn").onclick = () => {
 };
 
 document.getElementById("shareBtn").onclick = () => {
-  let text = "🏀 Rotation:\n";
+  const counts = getPlayedCounts(PERIODS + 1);
+  const activePool = getActivePool();
+  const sortedPlayers = activePool.slice().sort((a,b) => a.name.localeCompare(b.name));
+  
+  let text = "🏀 Rotation Schedule\n\n";
+  
+  // Add period lineups
   for(let k=1; k<=PERIODS; k++) {
     const l = state.schedule[String(k)];
-    if(l) text += `P${k}: ${l.map(getName).join(", ")}\n`;
+    if(l && l.length > 0) {
+      text += `Period ${k}: ${l.map(getName).join(", ")}\n`;
+    }
   }
+  
+  // Add playing time summary
+  text += "\n📊 Playing Time:\n";
+  sortedPlayers.forEach(p => {
+    const periods = counts[p.id] || 0;
+    const topBadge = p.top ? " (TOP)" : "";
+    text += `${p.name}${topBadge}: ${periods} period${periods !== 1 ? 's' : ''}\n`;
+  });
+  
   navigator.clipboard.writeText(text)
     .then(() => setStatus("Copied to clipboard!"))
     .catch(() => setStatus("Copy failed."));
