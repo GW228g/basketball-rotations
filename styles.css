@@ -226,6 +226,11 @@ button.danger {
 .status { margin-top: 10px; color: var(--muted); font-size: 13px; min-height: 20px; }
 .footer { text-align: center; color: var(--muted); padding: 20px; font-size: 12px; }
 
+/* Print-only roster summary */
+.print-only-roster {
+  display: none;
+}
+
 /* Dialog */
 dialog { 
   background: var(--card); 
@@ -279,8 +284,19 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
   
   .hint { display: none; }
   
-  /* Hide player cards in print */
-  #players { display: none !important; }
+  /* Hide player cards in print, but show roster summary */
+  #players .player { display: none !important; }
+  
+  .print-only-roster {
+    display: block !important;
+    margin-bottom: 10px;
+    font-size: 9px;
+    line-height: 1.4;
+  }
+  
+  .print-only-roster strong {
+    font-weight: bold;
+  }
   
   .lineup { 
     break-inside: avoid; 
