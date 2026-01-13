@@ -242,91 +242,128 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
 
 /* Print Mode */
 @media print {
+  @page {
+    margin: 0.5in;
+  }
+  
   .no-print { display: none !important; }
+  
   body { 
     background: white; 
     color: black; 
-    font-size: 11px;
+    font-size: 10px;
+    line-height: 1.2;
   }
+  
   .container {
     padding: 0;
     max-width: 100%;
+    display: block;
+    gap: 0;
   }
+  
   .card { 
     border: none; 
     padding: 0; 
-    margin-bottom: 12px; 
+    margin-bottom: 8px; 
     box-shadow: none; 
     background: white; 
     page-break-inside: avoid;
   }
+  
   h2 { 
-    font-size: 14px; 
-    margin-bottom: 6px;
-    border-bottom: 2px solid #000;
+    font-size: 13px; 
+    margin: 8px 0 4px 0;
+    border-bottom: 1px solid #000;
     padding-bottom: 2px;
+    font-weight: bold;
   }
+  
+  .hint { display: none; }
+  
   .lineup { 
     break-inside: avoid; 
-    border: 1px solid #ccc; 
+    border: 1px solid #ddd; 
     background: white; 
     color: black;
-    padding: 6px;
-    margin-bottom: 4px;
-    font-size: 10px;
+    padding: 4px 6px;
+    margin-bottom: 3px;
+    font-size: 9px;
   }
+  
   .lineup.current { 
     border: 2px solid #000; 
-    background: #f0f0f0;
+    background: #f5f5f5;
   }
+  
   .lineup-header {
-    margin-bottom: 4px;
+    margin-bottom: 3px;
+    font-size: 10px;
   }
+  
   .on-court { 
     color: black; 
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1.3;
+    font-weight: 600;
   }
+  
   .bench { 
-    color: #555; 
-    margin-top: 4px;
-    padding-top: 4px;
-    font-size: 10px;
+    color: #666; 
+    margin-top: 3px;
+    padding-top: 3px;
+    font-size: 9px;
+    border-top: 1px dashed #ccc;
   }
+  
   .table { 
-    font-size: 10px;
+    font-size: 9px;
     width: 100%;
+    border-collapse: collapse;
   }
+  
   .table th, .table td { 
-    border-bottom: 1px solid #ccc; 
+    border-bottom: 1px solid #ddd; 
     color: black;
-    padding: 4px;
+    padding: 3px 4px;
   }
+  
   .table th {
     background: #f0f0f0;
     font-weight: bold;
+    font-size: 10px;
   }
+  
   .lockedTag { 
     border: 1px solid #999; 
     color: #333;
-    font-size: 9px;
-    padding: 1px 4px;
-  }
-  .badge {
     font-size: 8px;
-    background: #e0e0e0;
     padding: 1px 3px;
-    border-radius: 2px;
+    background: #eee;
   }
   
-  /* Compact layout for print */
-  #lineups, #minutes {
-    column-count: 2;
+  .badge {
+    font-size: 7px;
+    background: #e0e0e0;
+    padding: 1px 2px;
+    border-radius: 2px;
+    margin-left: 2px;
+  }
+  
+  /* Two column layout for compactness */
+  #lineups {
+    columns: 2;
     column-gap: 12px;
   }
   
   #lineups .lineup {
     break-inside: avoid;
+    display: inline-block;
+    width: 100%;
+  }
+  
+  #minutes {
+    margin-top: 8px;
   }
 }
 
