@@ -57,6 +57,16 @@ select, input[type="text"], textarea {
   font-size: 16px; 
   font-family: inherit; 
 }
+.mode-description {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--border) 30%, transparent);
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
+}
 .toggles { display: grid; gap: 10px; margin: 12px 0; }
 .toggle { display: flex; gap: 10px; align-items: center; font-size: 14px; cursor: pointer; }
 .toggle input { transform: scale(1.2); accent-color: var(--text); }
@@ -233,14 +243,91 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
 /* Print Mode */
 @media print {
   .no-print { display: none !important; }
-  body { background: white; color: black; }
-  .card { border: none; padding: 0; margin-bottom: 20px; box-shadow: none; background: white; }
-  .lineup { break-inside: avoid; border: 1px solid #ccc; background: white; color: black; }
-  .lineup.current { border: 2px solid #000; }
-  .on-court { color: black; }
-  .bench { color: #555; }
-  .table th, .table td { border-bottom: 1px solid #ccc; color: black; }
-  .lockedTag { border: 1px solid #999; color: #333; }
+  body { 
+    background: white; 
+    color: black; 
+    font-size: 11px;
+  }
+  .container {
+    padding: 0;
+    max-width: 100%;
+  }
+  .card { 
+    border: none; 
+    padding: 0; 
+    margin-bottom: 12px; 
+    box-shadow: none; 
+    background: white; 
+    page-break-inside: avoid;
+  }
+  h2 { 
+    font-size: 14px; 
+    margin-bottom: 6px;
+    border-bottom: 2px solid #000;
+    padding-bottom: 2px;
+  }
+  .lineup { 
+    break-inside: avoid; 
+    border: 1px solid #ccc; 
+    background: white; 
+    color: black;
+    padding: 6px;
+    margin-bottom: 4px;
+    font-size: 10px;
+  }
+  .lineup.current { 
+    border: 2px solid #000; 
+    background: #f0f0f0;
+  }
+  .lineup-header {
+    margin-bottom: 4px;
+  }
+  .on-court { 
+    color: black; 
+    font-size: 11px;
+    line-height: 1.3;
+  }
+  .bench { 
+    color: #555; 
+    margin-top: 4px;
+    padding-top: 4px;
+    font-size: 10px;
+  }
+  .table { 
+    font-size: 10px;
+    width: 100%;
+  }
+  .table th, .table td { 
+    border-bottom: 1px solid #ccc; 
+    color: black;
+    padding: 4px;
+  }
+  .table th {
+    background: #f0f0f0;
+    font-weight: bold;
+  }
+  .lockedTag { 
+    border: 1px solid #999; 
+    color: #333;
+    font-size: 9px;
+    padding: 1px 4px;
+  }
+  .badge {
+    font-size: 8px;
+    background: #e0e0e0;
+    padding: 1px 3px;
+    border-radius: 2px;
+  }
+  
+  /* Compact layout for print */
+  #lineups, #minutes {
+    column-count: 2;
+    column-gap: 12px;
+  }
+  
+  #lineups .lineup {
+    break-inside: avoid;
+  }
 }
 
 @media (max-width: 600px) {
