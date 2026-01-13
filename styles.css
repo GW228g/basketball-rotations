@@ -248,7 +248,7 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
 /* Print Mode */
 @media print {
   @page {
-    margin: 0.4in;
+    margin: 0.3in;
   }
   
   .no-print { display: none !important; }
@@ -256,8 +256,8 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
   body { 
     background: white; 
     color: black; 
-    font-size: 10px;
-    line-height: 1.3;
+    font-size: 9px;
+    line-height: 1.2;
   }
   
   .container {
@@ -270,15 +270,15 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
   .card { 
     border: none; 
     padding: 0; 
-    margin-bottom: 10px; 
+    margin-bottom: 6px; 
     box-shadow: none; 
     background: white; 
     page-break-inside: avoid;
   }
   
   h2 { 
-    font-size: 12px; 
-    margin: 0 0 4px 0;
+    font-size: 11px; 
+    margin: 0 0 3px 0;
     font-weight: bold;
   }
   
@@ -289,23 +289,25 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
   
   .print-only-roster {
     display: block !important;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
     font-size: 9px;
-    line-height: 1.4;
+    line-height: 1.3;
   }
   
   .print-only-roster strong {
     font-weight: bold;
   }
   
+  /* Compact lineups - single line format */
   .lineup { 
     break-inside: avoid; 
     border: none;
     background: white; 
     color: black;
-    padding: 2px 0;
-    margin-bottom: 2px;
+    padding: 0;
+    margin-bottom: 1px;
     font-size: 9px;
+    line-height: 1.3;
   }
   
   .lineup.current { 
@@ -314,8 +316,13 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
   
   .lineup-header {
     display: inline;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: bold;
+    margin-right: 4px;
+  }
+  
+  .lineup-header span {
+    display: inline;
   }
   
   .on-court { 
@@ -328,20 +335,49 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
   
   .bench { 
     color: #666; 
-    margin-top: 0;
-    padding-top: 0;
+    margin: 0;
+    padding: 0;
     font-size: 9px;
-    border-top: none;
+    border: none;
     display: inline;
-    margin-left: 8px;
+    margin-left: 6px;
   }
   
-  .bench::before {
-    content: " | Sitting: ";
+  .bench strong {
+    font-weight: normal;
     color: #999;
   }
   
-  /* Simplify table */
+  .lockedTag { 
+    display: none;
+  }
+  
+  .badge {
+    font-size: 7px;
+    background: #e8e8e8;
+    padding: 0 2px;
+    border-radius: 2px;
+    margin-left: 2px;
+  }
+  
+  /* Two column layout for lineups */
+  #lineups {
+    columns: 2;
+    column-gap: 12px;
+    margin-bottom: 6px;
+  }
+  
+  #lineups .lineup {
+    break-inside: avoid;
+    display: block;
+    width: 100%;
+  }
+  
+  /* Compact playing time table */
+  #minutes {
+    margin-top: 6px;
+  }
+  
   .table { 
     font-size: 9px;
     width: 100%;
@@ -357,55 +393,26 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
   .table th, .table td { 
     border: none;
     color: black;
-    padding: 1px 4px 1px 0;
+    padding: 0 6px 0 0;
+    line-height: 1.3;
   }
   
   .table td:first-child {
-    width: 60%;
+    width: 70%;
   }
   
   .table td:last-child {
-    width: 40%;
+    width: 30%;
   }
   
-  .lockedTag { 
-    font-size: 7px;
-    padding: 0 3px;
-    background: #ddd;
-    border: none;
-    margin-left: 4px;
-  }
-  
-  .badge {
-    font-size: 7px;
-    background: #e8e8e8;
-    padding: 0 2px;
-    border-radius: 2px;
-    margin-left: 2px;
-  }
-  
-  /* Compact two column layout */
-  #lineups {
+  .table tbody {
     columns: 2;
-    column-gap: 16px;
-    margin-bottom: 8px;
+    column-gap: 12px;
   }
   
-  #lineups .lineup {
-    break-inside: avoid;
+  .table tbody tr {
     display: block;
-    width: 100%;
-  }
-  
-  #minutes {
-    margin-top: 8px;
-  }
-  
-  /* Add roster summary at top of print */
-  .card:has(#players)::before {
-    content: "Players: ";
-    font-weight: bold;
-    font-size: 10px;
+    break-inside: avoid;
   }
 }
 
