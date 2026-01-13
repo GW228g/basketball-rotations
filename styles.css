@@ -314,7 +314,9 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
   }
   
   .lineup.current { 
-    font-weight: bold;
+    font-weight: normal;
+    border: none;
+    background: white;
   }
   
   .lineup-header {
