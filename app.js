@@ -662,7 +662,6 @@ function updateModeDescription() {
   descEl.textContent = desc;
 }
 
-// --- IMPROVED: Player rendering with DELETE button and TOP limit ---
 function renderPlayers() {
   const div = document.getElementById("players");
   if (!div) return;
@@ -673,6 +672,24 @@ function renderPlayers() {
     div.innerHTML = '<div class="hint">No players yet. Use "Import List" to add players.</div>';
     return;
   }
+  
+  // Add print-only roster summary at the top
+  const printSummary = document.createElement("div");
+  printSummary.className = "print-only-roster";
+  const activePlayers = state.players.filter(p => p.available && !p.out);
+  const inactivePlayers = state.players.filter(p => !p.available || p.out);
+  
+  let summaryHTML = `<div style="margin-bottom: 8px; font-size: 10px;">`;
+  summaryHTML += `<strong>Playing (${activePlayers.length}):</strong> `;
+  summaryHTML += activePlayers.map(p => p.name + (p.top ? " ★" : "")).join(", ");
+  
+  if (inactivePlayers.length > 0) {
+    summaryHTML += `<br><strong>Not available (${inactivePlayers.length}):</strong> `;
+    summaryHTML += inactivePlayers.map(p => p.name).join(", ");
+  }
+  summaryHTML += `</div>`;
+  printSummary.innerHTML = summaryHTML;
+  div.appendChild(printSummary);
   
   state.players.forEach((p) => {
     const row = document.createElement("div");
