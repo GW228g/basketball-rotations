@@ -260,6 +260,18 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
     line-height: 1.2;
   }
   
+  /* Print header with website and date */
+  body::before {
+    content: "rotations.maker404.com • " attr(data-print-date);
+    display: block;
+    text-align: center;
+    font-size: 8px;
+    color: #666;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #ddd;
+  }
+  
   .container {
     padding: 0;
     max-width: 100%;
