@@ -1020,6 +1020,15 @@ document.getElementById("shareBtn").onclick = () => {
 };
 
 document.getElementById("printBtn").onclick = () => {
+  // Set print date on body element
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { 
+    month: 'short', 
+    day: 'numeric', 
+    year: 'numeric' 
+  });
+  document.body.setAttribute('data-print-date', dateStr);
+  
   window.print();
 };
 
