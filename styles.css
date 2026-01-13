@@ -276,10 +276,13 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
     page-break-inside: avoid;
   }
   
-  h2 { 
-    font-size: 11px; 
-    margin: 0 0 3px 0;
-    font-weight: bold;
+  /* Hide player section heading in print since we have roster summary */
+  .card:has(#players) h2 {
+    display: none;
+  }
+  
+  .card:has(#players) .rowhead {
+    display: none;
   }
   
   .hint { display: none; }
@@ -340,12 +343,16 @@ dialog .small { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
     font-size: 9px;
     border: none;
     display: inline;
+  }
+  
+  .bench::before {
+    content: "Sitting: ";
+    color: #999;
     margin-left: 6px;
   }
   
   .bench strong {
-    font-weight: normal;
-    color: #999;
+    display: none;
   }
   
   .lockedTag { 
