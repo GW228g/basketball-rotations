@@ -3,16 +3,19 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>4v4 Rotation Planner</title>
+<title>Basketball Rotation Planner</title>
 <link rel="stylesheet" href="styles.css" />
 <meta name="theme-color" content="#0b0b0b" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="apple-touch-icon" href="favicon-180.png" />
 </head>
 <body>
 <header class="header no-print">
 <div class="headerRow">
 <div class="titlewrap">
 <h1>4v4 Rotation Planner</h1>
-<div class="sub">8 periods &bull; 4 on court &bull; Rebuild anytime</div>
+<div class="sub">8 periods • 4 on court • Rebuild anytime</div>
 </div>
 <button id="themeToggle" class="secondary smallbtn" type="button">Light mode</button>
 </div>
@@ -22,17 +25,26 @@
 <h2>Game controls</h2>
 <div class="grid">
 <label class="field">
-<span class="label">Mode</span>
+<span class="label">Game mode</span>
+<select id="gameMode">
+<option value="4v4" selected>4v4</option>
+<option value="5v5">5v5</option>
+</select>
+</label>
+<label class="field">
+<span class="label">Current period</span>
+<select id="currentPeriod"></select>
+</label>
+</div>
+<div class="grid">
+<label class="field">
+<span class="label">Rotation mode</span>
 <select id="mode">
 <option value="fair_optimized" selected>Fair time optimized</option>
 <option value="sliding_fixed">Sliding rotation (fixed)</option>
 <option value="sliding_adaptive">Sliding rotation (adaptive)</option>
 <option value="true_random_fair">True random (fair time)</option>
 </select>
-</label>
-<label class="field">
-<span class="label">Current period</span>
-<select id="currentPeriod"></select>
 </label>
 </div>
 <div class="toggles">

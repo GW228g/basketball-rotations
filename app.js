@@ -1,8 +1,12 @@
 // Constants
 const PERIODS = 8;
-const ON_COURT = 4;
 const LS_KEY = "rotation_planner_state_v8";
 const THEME_KEY = "rotation_planner_theme";
+
+// Dynamic: Get players on court based on game mode
+function getOnCourt() {
+  return state.gameMode === "5v5" ? 5 : 4;
+}
 
 // Helper: unique ID
 const uid = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -10,6 +14,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).substr(2)
 // Default State
 function defaultState() {
   return {
+    gameMode: "4v4", // "4v4" or "5v5"
     mode: "fair_optimized",
     currentPeriod: 1,
     topTwoCoverage: true,
@@ -132,6 +137,7 @@ function selectFairLineup(period, pool, played, streak) {
   });
   
   // Take the first ON_COURT players (they have min periods and TOP priority)
+  const ON_COURT = getOnCourt();
   let lineup = sorted.slice(0, ON_COURT);
   
   // Verify the lineup maintains fairness (everyone in lineup has same or +1 periods)
@@ -144,6 +150,7 @@ function selectFairLineup(period, pool, played, streak) {
     // Everyone has same count - we can shuffle for streak optimization
     const candidates = sorted.filter(id => (played[id] || 0) === minInLineup);
     
+    const ON_COURT = getOnCourt();
     if (candidates.length > ON_COURT) {
       let bestLineup = lineup;
       let minScore = calculateStreakPenalty(lineup, streak) + calculateTopPlayerPenalty(lineup, pool);
@@ -170,6 +177,7 @@ function selectFairLineup(period, pool, played, streak) {
 // --- Fair Optimized Mode ---
 function buildFairOptimized(startPeriod) {
   const pool = getActivePool();
+  const ON_COURT = getOnCourt();
   
   if (pool.length < ON_COURT) {
     setStatus(`Need ${ON_COURT} active players.`);
@@ -198,6 +206,7 @@ function buildFairOptimized(startPeriod) {
 // --- Sliding Fixed Mode: Uses predetermined rotation patterns (NO TOP priority) ---
 function buildSlidingFixed(startPeriod) {
   const pool = getActivePool();
+  const ON_COURT = getOnCourt();
   
   if (pool.length < ON_COURT) {
     setStatus(`Need ${ON_COURT} active players.`);
@@ -215,49 +224,8 @@ function buildSlidingFixed(startPeriod) {
   const poolIds = pool.map(p => p.id);
   const numPlayers = poolIds.length;
   
-  // Define rotation patterns based on number of players
-  const rotationPatterns = {
-    8: [ // 8 players: each player plays 4 out of 8 periods
-      [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
-      [4, 5, 6, 7],  // Period 2: Players 5,6,7,8
-      [1, 2, 3, 4],  // Period 3: Players 2,3,4,5
-      [5, 6, 7, 0],  // Period 4: Players 6,7,8,1
-      [2, 3, 4, 5],  // Period 5: Players 3,4,5,6
-      [6, 7, 0, 1],  // Period 6: Players 7,8,1,2
-      [2, 3, 4, 5],  // Period 7: Players 3,4,5,6
-      [6, 7, 0, 1]   // Period 8: Players 7,8,1,2
-    ],
-    7: [ // 7 players: each plays 4-5 periods
-      [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
-      [4, 5, 6, 0],  // Period 2: Players 5,6,7,1
-      [1, 2, 3, 4],  // Period 3: Players 2,3,4,5
-      [5, 6, 0, 1],  // Period 4: Players 6,7,1,2
-      [2, 3, 4, 5],  // Period 5: Players 3,4,5,6
-      [6, 0, 1, 2],  // Period 6: Players 7,1,2,3
-      [3, 4, 5, 6],  // Period 7: Players 4,5,6,7
-      [0, 1, 2, 3]   // Period 8: Players 1,2,3,4
-    ],
-    6: [ // 6 players: each plays 5-6 periods
-      [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
-      [4, 5, 0, 1],  // Period 2: Players 5,6,1,2
-      [2, 3, 4, 5],  // Period 3: Players 3,4,5,6
-      [0, 1, 2, 3],  // Period 4: Players 1,2,3,4
-      [4, 5, 0, 1],  // Period 5: Players 5,6,1,2
-      [2, 3, 4, 5],  // Period 6: Players 3,4,5,6
-      [0, 1, 2, 3],  // Period 7: Players 1,2,3,4
-      [4, 5, 0, 1]   // Period 8: Players 5,6,1,2
-    ],
-    5: [ // 5 players: each plays 6-7 periods
-      [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
-      [4, 0, 1, 2],  // Period 2: Players 5,1,2,3
-      [3, 4, 0, 1],  // Period 3: Players 4,5,1,2
-      [2, 3, 4, 0],  // Period 4: Players 3,4,5,1
-      [1, 2, 3, 4],  // Period 5: Players 2,3,4,5
-      [0, 1, 2, 3],  // Period 6: Players 1,2,3,4
-      [4, 0, 1, 2],  // Period 7: Players 5,1,2,3
-      [3, 4, 0, 1]   // Period 8: Players 4,5,1,2
-    ]
-  };
+  // Define rotation patterns based on number of players and game mode
+  const rotationPatterns = getRotationPatterns(ON_COURT);
   
   let pattern = rotationPatterns[numPlayers];
   
@@ -289,6 +257,7 @@ function buildSlidingFixed(startPeriod) {
 // --- Sliding Adaptive Mode: Sliding pattern with TOP player priority ---
 function buildSlidingAdaptive(startPeriod) {
   const pool = getActivePool();
+  const ON_COURT = getOnCourt();
   
   if (pool.length < ON_COURT) {
     setStatus(`Need ${ON_COURT} active players.`);
@@ -343,48 +312,7 @@ function buildSlidingAdaptive(startPeriod) {
   });
   
   // Define rotation patterns (same as sliding fixed)
-  const rotationPatterns = {
-    8: [
-      [0, 1, 2, 3],
-      [4, 5, 6, 7],
-      [1, 2, 3, 4],
-      [5, 6, 7, 0],
-      [2, 3, 4, 5],
-      [6, 7, 0, 1],
-      [2, 3, 4, 5],
-      [6, 7, 0, 1]
-    ],
-    7: [
-      [0, 1, 2, 3],
-      [4, 5, 6, 0],
-      [1, 2, 3, 4],
-      [5, 6, 0, 1],
-      [2, 3, 4, 5],
-      [6, 0, 1, 2],
-      [3, 4, 5, 6],
-      [0, 1, 2, 3]
-    ],
-    6: [
-      [0, 1, 2, 3],
-      [4, 5, 0, 1],
-      [2, 3, 4, 5],
-      [0, 1, 2, 3],
-      [4, 5, 0, 1],
-      [2, 3, 4, 5],
-      [0, 1, 2, 3],
-      [4, 5, 0, 1]
-    ],
-    5: [
-      [0, 1, 2, 3],
-      [4, 0, 1, 2],
-      [3, 4, 0, 1],
-      [2, 3, 4, 0],
-      [1, 2, 3, 4],
-      [0, 1, 2, 3],
-      [4, 0, 1, 2],
-      [3, 4, 0, 1]
-    ]
-  };
+  const rotationPatterns = getRotationPatterns(ON_COURT);
   
   let pattern = rotationPatterns[numPlayers];
   
@@ -442,6 +370,7 @@ function buildSlidingAdaptive(startPeriod) {
 // --- True Random Fair Mode: Random mix each period while maintaining fairness ---
 function buildTrueRandomFair(startPeriod) {
   const pool = getActivePool();
+  const ON_COURT = getOnCourt();
   
   if (pool.length < ON_COURT) {
     setStatus(`Need ${ON_COURT} active players.`);
@@ -481,6 +410,117 @@ function buildTrueRandomFair(startPeriod) {
   }
   
   verifyFairness();
+}
+
+// --- Rotation Pattern Generator ---
+function getRotationPatterns(onCourt) {
+  if (onCourt === 4) {
+    return {
+      8: [ // 8 players: each player plays 4 out of 8 periods
+        [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
+        [4, 5, 6, 7],  // Period 2: Players 5,6,7,8
+        [1, 2, 3, 4],  // Period 3: Players 2,3,4,5
+        [5, 6, 7, 0],  // Period 4: Players 6,7,8,1
+        [2, 3, 4, 5],  // Period 5: Players 3,4,5,6
+        [6, 7, 0, 1],  // Period 6: Players 7,8,1,2
+        [2, 3, 4, 5],  // Period 7: Players 3,4,5,6
+        [6, 7, 0, 1]   // Period 8: Players 7,8,1,2
+      ],
+      7: [ // 7 players: each plays 4-5 periods
+        [0, 1, 2, 3],  // Period 1: Players 1,2,3,4
+        [4, 5, 6, 0],  // Period 2: Players 5,6,7,1
+        [1, 2, 3, 4],  // Period 3: Players 2,3,4,5
+        [5, 6, 0, 1],  // Period 4: Players 6,7,1,2
+        [2, 3, 4, 5],  // Period 5: Players 3,4,5,6
+        [6, 0, 1, 2],  // Period 6: Players 7,1,2,3
+        [3, 4, 5, 6],  // Period 7: Players 4,5,6,7
+        [0, 1, 2, 3]   // Period 8: Players 1,2,3,4
+      ],
+      6: [ // 6 players: each plays 5-6 periods
+        [0, 1, 2, 3],
+        [4, 5, 0, 1],
+        [2, 3, 4, 5],
+        [0, 1, 2, 3],
+        [4, 5, 0, 1],
+        [2, 3, 4, 5],
+        [0, 1, 2, 3],
+        [4, 5, 0, 1]
+      ],
+      5: [ // 5 players: each plays 6-7 periods
+        [0, 1, 2, 3],
+        [4, 0, 1, 2],
+        [3, 4, 0, 1],
+        [2, 3, 4, 0],
+        [1, 2, 3, 4],
+        [0, 1, 2, 3],
+        [4, 0, 1, 2],
+        [3, 4, 0, 1]
+      ]
+    };
+  } else { // 5v5
+    return {
+      10: [ // 10 players: each plays 4 out of 8 periods
+        [0, 1, 2, 3, 4],    // Period 1: Players 1-5
+        [5, 6, 7, 8, 9],    // Period 2: Players 6-10
+        [1, 2, 3, 4, 5],    // Period 3: Players 2-6
+        [6, 7, 8, 9, 0],    // Period 4: Players 7-10,1
+        [2, 3, 4, 5, 6],    // Period 5: Players 3-7
+        [7, 8, 9, 0, 1],    // Period 6: Players 8-10,1-2
+        [3, 4, 5, 6, 7],    // Period 7: Players 4-8
+        [8, 9, 0, 1, 2]     // Period 8: Players 9-10,1-3
+      ],
+      9: [ // 9 players: each plays 4-5 periods
+        [0, 1, 2, 3, 4],    // Period 1: Players 1-5
+        [5, 6, 7, 8, 0],    // Period 2: Players 6-9,1
+        [1, 2, 3, 4, 5],    // Period 3: Players 2-6
+        [6, 7, 8, 0, 1],    // Period 4: Players 7-9,1-2
+        [2, 3, 4, 5, 6],    // Period 5: Players 3-7
+        [7, 8, 0, 1, 2],    // Period 6: Players 8-9,1-3
+        [3, 4, 5, 6, 7],    // Period 7: Players 4-8
+        [4, 5, 6, 7, 8]     // Period 8: Players 5-9
+      ],
+      8: [ // 8 players: each plays 5 out of 8 periods
+        [0, 1, 2, 3, 4],    // Period 1: Players 1-5
+        [5, 6, 7, 0, 1],    // Period 2: Players 6-8,1-2
+        [2, 3, 4, 5, 6],    // Period 3: Players 3-7
+        [7, 0, 1, 2, 3],    // Period 4: Players 8,1-4
+        [4, 5, 6, 7, 0],    // Period 5: Players 5-8,1
+        [1, 2, 3, 4, 5],    // Period 6: Players 2-6
+        [6, 7, 0, 1, 2],    // Period 7: Players 7-8,1-3
+        [3, 4, 5, 6, 7]     // Period 8: Players 4-8
+      ],
+      7: [ // 7 players: each plays 5-6 periods
+        [0, 1, 2, 3, 4],    // Period 1: Players 1-5
+        [5, 6, 0, 1, 2],    // Period 2: Players 6-7,1-3
+        [3, 4, 5, 6, 0],    // Period 3: Players 4-7,1
+        [1, 2, 3, 4, 5],    // Period 4: Players 2-6
+        [6, 0, 1, 2, 3],    // Period 5: Players 7,1-4
+        [4, 5, 6, 0, 1],    // Period 6: Players 5-7,1-2
+        [2, 3, 4, 5, 6],    // Period 7: Players 3-7
+        [0, 1, 2, 3, 4]     // Period 8: Players 1-5
+      ],
+      6: [ // 6 players: each plays 6-7 periods
+        [0, 1, 2, 3, 4],    // Period 1: Players 1-5
+        [5, 0, 1, 2, 3],    // Period 2: Players 6,1-4
+        [4, 5, 0, 1, 2],    // Period 3: Players 5-6,1-3
+        [3, 4, 5, 0, 1],    // Period 4: Players 4-6,1-2
+        [2, 3, 4, 5, 0],    // Period 5: Players 3-6,1
+        [1, 2, 3, 4, 5],    // Period 6: Players 2-6
+        [0, 1, 2, 3, 4],    // Period 7: Players 1-5
+        [5, 0, 1, 2, 3]     // Period 8: Players 6,1-4
+      ],
+      5: [ // 5 players: everyone plays all 8 periods
+        [0, 1, 2, 3, 4],    // Period 1: All players
+        [0, 1, 2, 3, 4],    // Period 2: All players
+        [0, 1, 2, 3, 4],    // Period 3: All players
+        [0, 1, 2, 3, 4],    // Period 4: All players
+        [0, 1, 2, 3, 4],    // Period 5: All players
+        [0, 1, 2, 3, 4],    // Period 6: All players
+        [0, 1, 2, 3, 4],    // Period 7: All players
+        [0, 1, 2, 3, 4]     // Period 8: All players
+      ]
+    };
+  }
 }
 
 function verifyFairness() {
@@ -623,18 +663,36 @@ function renderSettings() {
       el.onchange = () => { 
         state[key] = el.value; 
         saveState(); 
+        if (key === "gameMode") {
+          // Clear schedule when switching game modes
+          state.schedule = {};
+          state.locked = {};
+          state.currentPeriod = 1;
+          updateTitle();
+        }
         renderAll();
-        updateModeDescription();
+        if (key === "mode") updateModeDescription();
       };
     }
   };
   
+  bind("gameMode", "gameMode");
   bind("mode", "mode");
   bind("topTwoCoverage", "topTwoCoverage");
   bind("avoidStreaks", "avoidStreaks");
   bind("autoRebuild", "autoRebuild");
   
   updateModeDescription();
+  updateTitle();
+}
+
+function updateTitle() {
+  const title = document.querySelector("h1");
+  const sub = document.querySelector(".sub");
+  const onCourt = getOnCourt();
+  
+  if (title) title.textContent = `${state.gameMode.toUpperCase()} Rotation Planner`;
+  if (sub) sub.textContent = `8 periods • ${onCourt} on court • Rebuild anytime`;
 }
 
 function updateModeDescription() {
